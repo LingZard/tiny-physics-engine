@@ -6,8 +6,6 @@ This project aims to **build a physics engine from scratch in Rust**, primarily 
 The goal is to **understand and implement** the fundamental components of a physics engine — including **particles, rigid bodies, constraints, collisions, impulses, and force-based solvers** — while maintaining clear and minimalistic code.
 
 The engine will focus on **2D physics simulation**, but its architecture will be designed to be **conceptually extensible to 3D**.  
-Through this project, I aim to deeply understand how modern physics engines such as **Box2D, Rapier, and MuJoCo** work internally — from mathematical models to numerical stability, from collision detection to constraint solvers.
-
 
 ## 🧩 Code Philosophy
 
