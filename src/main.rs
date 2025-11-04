@@ -1,4 +1,5 @@
 mod core;
+mod forces;
 mod math;
 
 use math::vec::Vec2;
