@@ -32,7 +32,7 @@ impl ForceGen for Spring {
         let pb = b.pos();
         let dir = pb - pa; // from a to b
         let len = dir.length();
-        if len == 0.0 {
+        if len < 1e-6 {
             return;
         }
         let n = dir / len;
@@ -42,7 +42,7 @@ impl ForceGen for Spring {
         let fs = -self.k * x;
 
         // Damping along spring direction
-        let vr = (b.vel() - a.vel()).dot(&n);
+        let vr = (a.vel() - b.vel()).dot(&n);
         let fd = -self.c * vr;
 
         let f = n * (fs + fd); // apply to a, opposite to b
@@ -74,7 +74,7 @@ impl ForceGen for AnchoredSpring {
         let p = e.pos();
         let dir = p - &self.anchor; // from anchor to particle
         let len = dir.length();
-        if len == 0.0 {
+        if len < 1e-6 {
             return;
         }
         let n = dir / len;
