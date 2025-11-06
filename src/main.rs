@@ -1,22 +1,15 @@
 mod core;
 mod forces;
 mod math;
+mod visualize;
 
 use math::vec::Vec2;
 
 use macroquad::prelude as mq;
 
 use core::{Integrator, World, particle::Particle};
-use forces::{
-    drag::LinearDrag,
-    spring::{AnchoredSpring, Spring},
-};
-
-fn to_screen(p: &Vec2, scale: f32) -> (f32, f32) {
-    let cx = mq::screen_width() * 0.5;
-    let cy = mq::screen_height() * 0.5;
-    (cx + p.x * scale, cy - p.y * scale)
-}
+use forces::spring::{AnchoredSpring, Spring};
+use visualize::draw_world;
 
 fn resolve_ground_collisions(world: &mut World, scale: f32, restitution: f32) {
     let ground_y = -(mq::screen_height() * 0.5) / scale;
@@ -39,42 +32,6 @@ fn resolve_ground_collisions(world: &mut World, scale: f32, restitution: f32) {
                     v.x = 0.0;
                 }
             }
-        }
-    }
-}
-
-fn draw_axes_and_ground() {
-    let cx = mq::screen_width() * 0.5;
-    let cy = mq::screen_height() * 0.5;
-    mq::draw_line(0.0, cy, mq::screen_width(), cy, 1.0, mq::GRAY);
-    mq::draw_line(cx, 0.0, cx, mq::screen_height(), 1.0, mq::GRAY);
-    let bottom_y = mq::screen_height() - 1.0;
-    mq::draw_line(0.0, bottom_y, mq::screen_width(), bottom_y, 2.0, mq::GREEN);
-}
-
-fn draw_particles(world: &World, scale: f32) {
-    for e in world.entities.iter() {
-        let pos = e.pos();
-        let (sx, sy) = to_screen(pos, scale);
-        mq::draw_circle(sx, sy, 6.0, mq::YELLOW);
-    }
-}
-
-fn draw_springs(world: &World, scale: f32, anchor: Option<&Vec2>) {
-    if world.entities.len() >= 2 {
-        let p0 = world.entities[0].pos();
-        let p1 = world.entities[1].pos();
-        let (x0, y0) = to_screen(p0, scale);
-        let (x1, y1) = to_screen(p1, scale);
-        mq::draw_line(x0, y0, x1, y1, 2.0, mq::ORANGE);
-    }
-    if let Some(a) = anchor {
-        if world.entities.len() >= 3 {
-            let p2 = world.entities[2].pos();
-            let (ax, ay) = to_screen(a, scale);
-            let (x2, y2) = to_screen(p2, scale);
-            mq::draw_circle(ax, ay, 4.0, mq::RED);
-            mq::draw_line(ax, ay, x2, y2, 2.0, mq::RED);
         }
     }
 }
@@ -119,8 +76,6 @@ async fn main() {
     let fixed_dt = 1.0 / 120.0;
     let mut accumulator = 0.0f32;
 
-    // world.add_force(Box::new(LinearDrag { k: 0.8 }));
-    let mut anchor_draw: Option<Vec2> = None;
     if world.entities.len() >= 2 {
         let p0 = world.entities[0].pos();
         let p1 = world.entities[1].pos();
@@ -144,7 +99,6 @@ async fn main() {
             c: 2.5,
             rest,
         }));
-        anchor_draw = Some(Vec2::new(-3.0, 7.5));
     }
 
     loop {
@@ -158,10 +112,7 @@ async fn main() {
             &mut accumulator,
         );
 
-        mq::clear_background(mq::Color::from_rgba(18, 18, 24, 255));
-        draw_axes_and_ground();
-        draw_springs(&world, scale, anchor_draw.as_ref());
-        draw_particles(&world, scale);
+        draw_world(&world, scale);
 
         mq::next_frame().await;
     }
