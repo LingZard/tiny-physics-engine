@@ -1,7 +1,7 @@
 use crate::core::World;
 use crate::forces::{
     drag::LinearDrag,
-    spring::{AnchoredSpring, Spring},
+    spring::{Spring, SpringEnd},
 };
 use crate::math::vec::Vec2;
 use macroquad::prelude as mq;
@@ -43,10 +43,6 @@ fn draw_forces(world: &World, scale: f32) {
             s.draw(world, scale);
             continue;
         }
-        if let Some(s) = any.downcast_ref::<AnchoredSpring>() {
-            s.draw(world, scale);
-            continue;
-        }
         if let Some(s) = any.downcast_ref::<LinearDrag>() {
             s.draw(world, scale);
             continue;
@@ -59,31 +55,32 @@ pub fn draw_world(world: &World, scale: f32) {
     draw_axes_and_ground();
     draw_forces(world, scale);
     draw_particles(world, scale);
+    draw_hud(world);
 }
 
 impl VisualForce for Spring {
     fn draw(&self, world: &World, scale: f32) {
-        let i = self.i;
-        let j = self.j;
-        if i < world.entities.len() && j < world.entities.len() {
-            let p0 = world.entities[i].pos();
-            let p1 = world.entities[j].pos();
-            let (x0, y0) = to_screen(p0, scale);
-            let (x1, y1) = to_screen(p1, scale);
+        let p_of = |end: &SpringEnd| -> Option<Vec2> {
+            match end {
+                SpringEnd::Entity(i) => world
+                    .entities
+                    .get(*i)
+                    .map(|e| Vec2::new(e.pos().x, e.pos().y)),
+                SpringEnd::Anchor(p) => Some(Vec2::new(p.x, p.y)),
+            }
+        };
+        if let (Some(pa), Some(pb)) = (p_of(&self.a), p_of(&self.b)) {
+            let (x0, y0) = to_screen(&pa, scale);
+            let (x1, y1) = to_screen(&pb, scale);
             mq::draw_line(x0, y0, x1, y1, 2.0, mq::ORANGE);
-        }
-    }
-}
-
-impl VisualForce for AnchoredSpring {
-    fn draw(&self, world: &World, scale: f32) {
-        let i = self.i;
-        if i < world.entities.len() {
-            let pi = world.entities[i].pos();
-            let (ax, ay) = to_screen(&self.anchor, scale);
-            let (ix, iy) = to_screen(pi, scale);
-            mq::draw_circle(ax, ay, 4.0, mq::RED);
-            mq::draw_line(ax, ay, ix, iy, 2.0, mq::RED);
+            if let SpringEnd::Anchor(ref p) = self.a {
+                let (ax, ay) = to_screen(p, scale);
+                mq::draw_circle(ax, ay, 4.0, mq::RED);
+            }
+            if let SpringEnd::Anchor(ref p) = self.b {
+                let (ax, ay) = to_screen(p, scale);
+                mq::draw_circle(ax, ay, 4.0, mq::RED);
+            }
         }
     }
 }
@@ -92,4 +89,54 @@ impl VisualForce for LinearDrag {
     fn draw(&self, _world: &World, _scale: f32) {
         // no-op visualization for drag
     }
+}
+
+fn draw_hud(world: &World) {
+    let mut kinetic = 0.0f32;
+    let mut px = 0.0f32;
+    let mut py = 0.0f32;
+    for e in world.entities.iter() {
+        let inv_m = e.inv_mass();
+        if inv_m > 0.0 {
+            let m = 1.0 / inv_m;
+            let v = e.vel();
+            kinetic += 0.5 * m * (v.x * v.x + v.y * v.y);
+            px += m * v.x;
+            py += m * v.y;
+        }
+    }
+
+    let mut potential = 0.0f32;
+    for g in world.forces.iter() {
+        let any: &dyn Any = g.as_ref();
+        if let Some(s) = any.downcast_ref::<Spring>() {
+            let p_of = |end: &SpringEnd| -> Option<Vec2> {
+                match end {
+                    SpringEnd::Entity(i) => world
+                        .entities
+                        .get(*i)
+                        .map(|e| Vec2::new(e.pos().x, e.pos().y)),
+                    SpringEnd::Anchor(p) => Some(Vec2::new(p.x, p.y)),
+                }
+            };
+            if let (Some(pa), Some(pb)) = (p_of(&s.a), p_of(&s.b)) {
+                let d = pa - &pb;
+                let dist = d.length();
+                let x = dist - s.rest;
+                potential += 0.5 * s.k * x * x;
+            }
+            continue;
+        }
+    }
+
+    let text = format!(
+        "K={:.2}  U={:.2}  E={:.2}  P=({:.2},{:.2})  N={}",
+        kinetic,
+        potential,
+        kinetic + potential,
+        px,
+        py,
+        world.entities.len()
+    );
+    mq::draw_text(&text, 16.0, 24.0, 22.0, mq::WHITE);
 }

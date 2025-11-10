@@ -8,7 +8,7 @@ use math::vec::Vec2;
 use macroquad::prelude as mq;
 
 use core::{Integrator, World, particle::Particle};
-use forces::spring::{AnchoredSpring, Spring};
+use forces::spring::Spring;
 use visualize::draw_world;
 
 fn resolve_ground_collisions(world: &mut World, scale: f32, restitution: f32) {
@@ -80,25 +80,13 @@ async fn main() {
         let p0 = world.entities[0].pos();
         let p1 = world.entities[1].pos();
         let rest = (p1 - p0).length();
-        world.add_force(Box::new(Spring {
-            i: 0,
-            j: 1,
-            k: 15.0,
-            c: 1.5,
-            rest,
-        }));
+        world.add_force(Box::new(Spring::between(0, 1, 15.0, 1.5, rest)));
     }
     if world.entities.len() >= 3 {
         let anchor = Vec2::new(-3.0, 7.5);
         let p2 = world.entities[2].pos();
         let rest = (p2 - &anchor).length();
-        world.add_force(Box::new(AnchoredSpring {
-            i: 2,
-            anchor,
-            k: 20.0,
-            c: 2.5,
-            rest,
-        }));
+        world.add_force(Box::new(Spring::to_anchor(2, anchor, 20.0, 2.5, rest)));
     }
 
     loop {
