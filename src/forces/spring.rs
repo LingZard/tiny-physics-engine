@@ -16,43 +16,39 @@ impl ForceGen for Spring {
         if self.i == self.j {
             return;
         }
-        let (i, j) = if self.i < self.j {
-            (self.i, self.j)
-        } else {
-            (self.j, self.i)
-        };
+
+        let (i, j) = (self.i.min(self.j), self.i.max(self.j));
         if j >= world.entities.len() {
             return;
         }
+
         let (left, right) = world.entities.split_at_mut(j);
         let a = &mut left[i];
         let b = &mut right[0];
 
-        let pa = a.pos();
-        let pb = b.pos();
-        let dir = pb - pa; // from a to b
-        let len = dir.length();
-        if len < 1e-6 {
+        let displacement = a.pos() - b.pos();
+        let distance = displacement.length();
+        if distance < 1e-6 {
             return;
         }
-        let n = dir / len;
+        let direction = displacement / distance;
 
-        // Hooke
-        let x = len - self.rest;
-        let fs = -self.k * x;
+        let extension = distance - self.rest;
+        let spring_force_magnitude = -self.k * extension;
 
-        // Damping along spring direction
-        let vr = (a.vel() - b.vel()).dot(&n);
-        let fd = -self.c * vr;
+        let v_rel = a.vel() - b.vel();
+        let f_damp = -(&v_rel * self.c);
 
-        let f = n * (fs + fd); // apply to a, opposite to b
+        let f_spring = &direction * spring_force_magnitude;
+        let force_on_a = &f_spring + &f_damp;
+
         if a.inv_mass() > 0.0 {
-            let fa = a.force() + &f;
-            *a.force_mut() = fa;
+            let updated = a.force() + &force_on_a;
+            *a.force_mut() = updated;
         }
         if b.inv_mass() > 0.0 {
-            let fb = b.force() - &f;
-            *b.force_mut() = fb;
+            let updated = b.force() - &force_on_a;
+            *b.force_mut() = updated;
         }
     }
 }
@@ -70,22 +66,24 @@ impl ForceGen for AnchoredSpring {
         if self.i >= world.entities.len() {
             return;
         }
-        let e = &mut world.entities[self.i];
-        let p = e.pos();
-        let dir = p - &self.anchor; // from anchor to particle
-        let len = dir.length();
-        if len < 1e-6 {
+
+        let entity = &mut world.entities[self.i];
+        let displacement = entity.pos() - &self.anchor;
+        let distance = displacement.length();
+        if distance < 1e-6 {
             return;
         }
-        let n = dir / len;
-        let x = len - self.rest;
-        let fs = -self.k * x;
-        let vr = e.vel().dot(&n);
-        let fd = -self.c * vr;
-        let f = n * (fs + fd);
-        if e.inv_mass() > 0.0 {
-            let fe = e.force() + &f;
-            *e.force_mut() = fe;
+        let direction = displacement / distance;
+
+        let extension = distance - self.rest;
+        let spring_force_magnitude = -self.k * extension;
+        let relative_speed_along = entity.vel().dot(&direction);
+        let damping_magnitude = -self.c * relative_speed_along;
+        let force = direction * (spring_force_magnitude + damping_magnitude);
+
+        if entity.inv_mass() > 0.0 {
+            let updated = entity.force() + &force;
+            *entity.force_mut() = updated;
         }
     }
 }

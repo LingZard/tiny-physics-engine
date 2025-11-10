@@ -8,12 +8,9 @@ pub struct LinearDrag {
 
 impl ForceGen for LinearDrag {
     fn apply(&self, world: &mut World) {
-        for e in world.entities.iter_mut() {
-            if e.inv_mass() == 0.0 {
-                continue;
-            }
-            let f = e.force() + &(-e.vel() * self.k);
-            *e.force_mut() = f;
+        for entity in world.entities.iter_mut().filter(|e| e.inv_mass() > 0.0) {
+            let new_force = entity.force() + &(-entity.vel() * self.k);
+            *entity.force_mut() = new_force;
         }
     }
 }
