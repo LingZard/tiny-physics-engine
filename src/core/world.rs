@@ -34,6 +34,7 @@ impl World {
         // 1) clear
         for e in self.entities.iter_mut() {
             e.clear_forces();
+            e.clear_torque();
         }
 
         // 2) gravity

@@ -1,33 +1,33 @@
 use super::entity::PhysicalEntity;
 use crate::math::vec::Vec2;
 
-pub struct Particle {
-    pos: Vec2,
-    vel: Vec2,
-    force: Vec2,
-    inv_mass: f32,
-    angle: f32,
-    omega: f32,
-    torque: f32,
-    inv_inertia: f32,
+pub struct RigidBody {
+    pub pos: Vec2,
+    pub vel: Vec2,
+    pub force: Vec2,
+    pub inv_mass: f32,
+    pub angle: f32,
+    pub omega: f32,
+    pub torque: f32,
+    pub inv_inertia: f32,
 }
 
-impl Particle {
-    pub fn new(pos: Vec2, vel: Vec2, inv_mass: f32) -> Self {
+impl RigidBody {
+    pub fn new(pos: Vec2, angle: f32, inv_mass: f32, inv_inertia: f32) -> Self {
         Self {
             pos,
-            vel,
+            vel: Vec2::zero(),
             force: Vec2::zero(),
             inv_mass,
-            angle: 0.0,
+            angle,
             omega: 0.0,
             torque: 0.0,
-            inv_inertia: 0.0,
+            inv_inertia,
         }
     }
 }
 
-impl PhysicalEntity for Particle {
+impl PhysicalEntity for RigidBody {
     fn pos(&self) -> &Vec2 {
         &self.pos
     }
