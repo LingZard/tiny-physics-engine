@@ -1,13 +1,12 @@
+use macroquad::prelude as mq;
+use std::any::Any;
+
 use crate::core::World;
 use crate::forces::{
     drag::LinearDrag,
     spring::{Spring, SpringEnd},
 };
 use crate::math::vec::Vec2;
-use macroquad::prelude as mq;
-use std::any::Any;
-
-// AI-generated code, for visualization only
 
 pub trait VisualForce {
     fn draw(&self, _world: &World, _scale: f32) {}
@@ -19,7 +18,7 @@ fn to_screen(p: &Vec2, scale: f32) -> (f32, f32) {
     (cx + p.x * scale, cy - p.y * scale)
 }
 
-fn draw_axes_and_ground() {
+pub fn draw_axes_and_ground() {
     let cx = mq::screen_width() * 0.5;
     let cy = mq::screen_height() * 0.5;
     mq::draw_line(0.0, cy, mq::screen_width(), cy, 1.0, mq::GRAY);
@@ -28,7 +27,7 @@ fn draw_axes_and_ground() {
     mq::draw_line(0.0, bottom_y, mq::screen_width(), bottom_y, 2.0, mq::GREEN);
 }
 
-fn draw_particles(world: &World, scale: f32) {
+pub fn draw_particles(world: &World, scale: f32) {
     for e in world.entities.iter() {
         let pos = e.pos();
         let (sx, sy) = to_screen(pos, scale);
@@ -86,9 +85,7 @@ impl VisualForce for Spring {
 }
 
 impl VisualForce for LinearDrag {
-    fn draw(&self, _world: &World, _scale: f32) {
-        // no-op visualization for drag
-    }
+    fn draw(&self, _world: &World, _scale: f32) {}
 }
 
 fn draw_hud(world: &World) {
@@ -105,7 +102,6 @@ fn draw_hud(world: &World) {
             py += m * v.y;
         }
     }
-
     let mut potential = 0.0f32;
     for g in world.forces.iter() {
         let any: &dyn Any = g.as_ref();
@@ -125,10 +121,8 @@ fn draw_hud(world: &World) {
                 let x = dist - s.rest;
                 potential += 0.5 * s.k * x * x;
             }
-            continue;
         }
     }
-
     let text = format!(
         "K={:.2}  U={:.2}  E={:.2}  P=({:.2},{:.2})  N={}",
         kinetic,
