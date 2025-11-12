@@ -1,4 +1,5 @@
 use super::entity::PhysicalEntity;
+use super::shape::Collider2D;
 use crate::math::vec::Vec2;
 
 pub struct RigidBody {
@@ -10,6 +11,7 @@ pub struct RigidBody {
     pub omega: f32,
     pub torque: f32,
     pub inv_inertia: f32,
+    pub collider: Option<Collider2D>,
 }
 
 impl RigidBody {
@@ -23,6 +25,45 @@ impl RigidBody {
             omega: 0.0,
             torque: 0.0,
             inv_inertia,
+            collider: None,
+        }
+    }
+
+    pub fn box_xy(pos: Vec2, angle: f32, mass: f32, width: f32, height: f32) -> Self {
+        let inv_mass = if mass > 0.0 { 1.0 / mass } else { 0.0 };
+        let collider = Collider2D::Box {
+            half_extents: Vec2::new(width * 0.5, height * 0.5),
+        };
+        let inertia = collider.inertia_about_center(mass);
+        let inv_inertia = if inertia > 0.0 { 1.0 / inertia } else { 0.0 };
+        Self {
+            pos,
+            vel: Vec2::zero(),
+            force: Vec2::zero(),
+            inv_mass,
+            angle,
+            omega: 0.0,
+            torque: 0.0,
+            inv_inertia,
+            collider: Some(collider),
+        }
+    }
+
+    pub fn circle(pos: Vec2, angle: f32, mass: f32, radius: f32) -> Self {
+        let inv_mass = if mass > 0.0 { 1.0 / mass } else { 0.0 };
+        let collider = Collider2D::Circle { radius };
+        let inertia = collider.inertia_about_center(mass);
+        let inv_inertia = if inertia > 0.0 { 1.0 / inertia } else { 0.0 };
+        Self {
+            pos,
+            vel: Vec2::zero(),
+            force: Vec2::zero(),
+            inv_mass,
+            angle,
+            omega: 0.0,
+            torque: 0.0,
+            inv_inertia,
+            collider: Some(collider),
         }
     }
 }
