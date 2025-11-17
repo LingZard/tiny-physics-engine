@@ -1,5 +1,6 @@
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
+#[derive(Debug, Clone, Copy)]
 pub struct Vec2 {
     pub x: f32,
     pub y: f32,
@@ -29,6 +30,24 @@ impl Vec2 {
 
     pub fn dot(&self, other: &Self) -> f32 {
         self.x * other.x + self.y * other.y
+    }
+
+    pub fn length_squared(&self) -> f32 {
+        self.x * self.x + self.y * self.y
+    }
+
+    pub fn perp(&self) -> Self {
+        Self::new(-self.y, self.x)
+    }
+
+    pub fn try_normalize(&self) -> Option<Self> {
+        let len_sq = self.length_squared();
+        if len_sq > 1e-12 {
+            let inv_len = 1.0 / len_sq.sqrt();
+            Some(Self::new(self.x * inv_len, self.y * inv_len))
+        } else {
+            None
+        }
     }
 }
 
