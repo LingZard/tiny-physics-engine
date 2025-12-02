@@ -111,4 +111,7 @@ impl PhysicalEntity for RigidBody {
     fn inv_inertia(&self) -> f32 {
         self.inv_inertia
     }
+    fn collider(&self) -> Option<&Collider2D> {
+        self.collider.as_ref()
+    }
 }

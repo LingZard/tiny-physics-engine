@@ -1,5 +1,7 @@
-use crate::math::vec::Vec2;
 use std::any::Any;
+
+use super::shape::Collider2D;
+use crate::math::vec::Vec2;
 
 pub trait PhysicalEntity: Any {
     // translation
@@ -23,5 +25,9 @@ pub trait PhysicalEntity: Any {
     fn inv_inertia(&self) -> f32;
     fn clear_torque(&mut self) {
         *self.torque_mut() = 0.0;
+    }
+    // collision
+    fn collider(&self) -> Option<&Collider2D> {
+        None
     }
 }

@@ -1,4 +1,5 @@
 pub mod broad_phase;
+pub mod constraint;
 pub mod entity;
 pub mod integrator;
 pub mod narrow_phase;

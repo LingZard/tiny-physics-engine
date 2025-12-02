@@ -1,8 +1,4 @@
-use std::any::Any;
-
 use super::entity::PhysicalEntity;
-use super::particle::Particle;
-use super::rigid_body::RigidBody;
 use super::shape::Collider2D;
 use crate::math::mat::Mat2;
 use crate::math::vec::Vec2;
@@ -35,27 +31,15 @@ impl Manifold {
     }
 }
 
-fn extract_collider(entity: &dyn PhysicalEntity) -> Option<(&Collider2D, f32)> {
-    let any: &dyn Any = entity;
-
-    if let Some(rb) = any.downcast_ref::<RigidBody>() {
-        rb.collider.as_ref().map(|col| (col, rb.angle()))
-    } else if any.downcast_ref::<Particle>().is_some() {
-        None
-    } else {
-        None
-    }
-}
-
-fn circle_circle(
+fn detect_circle_circle(
     center_a: &Vec2,
-    ra: f32,
+    radius_a: f32,
     center_b: &Vec2,
-    rb: f32,
+    radius_b: f32,
 ) -> Option<(Vec2, ContactPoint)> {
     let delta = center_b - center_a;
     let dist_sq = delta.length_squared();
-    let radius_sum = ra + rb;
+    let radius_sum = radius_a + radius_b;
 
     if dist_sq > radius_sum * radius_sum {
         return None;
@@ -67,7 +51,7 @@ fn circle_circle(
         (Vec2::new(1.0, 0.0), radius_sum)
     };
 
-    let contact_point = center_a + &(ra * &normal);
+    let contact_point = center_a + &(radius_a * &normal);
     Some((
         normal,
         ContactPoint {
@@ -77,25 +61,21 @@ fn circle_circle(
     ))
 }
 
-fn clamp(x: f32, lo: f32, hi: f32) -> f32 {
-    x.max(lo).min(hi)
-}
-
-fn box_circle(
+fn detect_box_circle(
     box_center: &Vec2,
     box_angle: f32,
     half_extents: &Vec2,
-    circ_center: &Vec2,
+    circle_center: &Vec2,
     radius: f32,
 ) -> Option<(Vec2, ContactPoint)> {
     let rot = Mat2::rotation(box_angle);
     let inv_rot = rot.transpose();
-    let delta_world = circ_center - box_center;
+    let delta_world = circle_center - box_center;
     let delta_local = inv_rot.mul_vec2(&delta_world);
 
     let closest_local = Vec2::new(
-        clamp(delta_local.x, -half_extents.x, half_extents.x),
-        clamp(delta_local.y, -half_extents.y, half_extents.y),
+        delta_local.x.clamp(-half_extents.x, half_extents.x),
+        delta_local.y.clamp(-half_extents.y, half_extents.y),
     );
 
     let diff = delta_local - &closest_local;
@@ -138,48 +118,42 @@ fn box_circle(
     ))
 }
 
-fn obb_axes(angle: f32) -> (Vec2, Vec2) {
-    let (c, s) = (angle.cos(), angle.sin());
-    (Vec2::new(c, s), Vec2::new(-s, c))
-}
-
-fn project_radius_on_axis(ax: &Vec2, ay: &Vec2, half_extents: &Vec2, axis: &Vec2) -> f32 {
-    axis.dot(ax).abs() * half_extents.x + axis.dot(ay).abs() * half_extents.y
-}
-
-fn support_point(
-    center: &Vec2,
-    axes: &(Vec2, Vec2),
-    half_extents: &Vec2,
-    direction: &Vec2,
-) -> Vec2 {
-    let (ax, ay) = axes;
-    let sign_x = ax.dot(direction).signum();
-    let sign_y = ay.dot(direction).signum();
-    center + &(sign_x * half_extents.x * ax) + &(sign_y * half_extents.y * ay)
-}
-
-fn box_box(
-    a_center: &Vec2,
-    a_angle: f32,
-    a_he: &Vec2,
-    b_center: &Vec2,
-    b_angle: f32,
-    b_he: &Vec2,
+fn detect_box_box(
+    center_a: &Vec2,
+    angle_a: f32,
+    half_extents_a: &Vec2,
+    center_b: &Vec2,
+    angle_b: f32,
+    half_extents_b: &Vec2,
 ) -> Option<(Vec2, ContactPoint)> {
-    let a_axes = obb_axes(a_angle);
-    let b_axes = obb_axes(b_angle);
-    let test_axes = [&a_axes.0, &a_axes.1, &b_axes.0, &b_axes.1];
+    let compute_axes = |angle: f32| {
+        let (c, s) = (angle.cos(), angle.sin());
+        (Vec2::new(c, s), Vec2::new(-s, c))
+    };
 
-    let ab = b_center - a_center;
+    let projection_radius = |axes: &(Vec2, Vec2), half_extents: &Vec2, axis: &Vec2| {
+        axis.dot(&axes.0).abs() * half_extents.x + axis.dot(&axes.1).abs() * half_extents.y
+    };
+
+    let support_point = |center: &Vec2, axes: &(Vec2, Vec2), half_extents: &Vec2, dir: &Vec2| {
+        let sign_x = axes.0.dot(dir).signum();
+        let sign_y = axes.1.dot(dir).signum();
+        center + &(sign_x * half_extents.x * &axes.0) + &(sign_y * half_extents.y * &axes.1)
+    };
+
+    let axes_a = compute_axes(angle_a);
+    let axes_b = compute_axes(angle_b);
+    let test_axes = [&axes_a.0, &axes_a.1, &axes_b.0, &axes_b.1];
+
+    let ab = center_b - center_a;
     let mut min_overlap = f32::INFINITY;
     let mut min_axis = Vec2::new(1.0, 0.0);
 
     for axis in test_axes {
-        let ra = project_radius_on_axis(&a_axes.0, &a_axes.1, a_he, axis);
-        let rb = project_radius_on_axis(&b_axes.0, &b_axes.1, b_he, axis);
-        let center_dist = ab.dot(axis).abs();
-        let overlap = ra + rb - center_dist;
+        let radius_a = projection_radius(&axes_a, half_extents_a, axis);
+        let radius_b = projection_radius(&axes_b, half_extents_b, axis);
+        let center_distance = ab.dot(axis).abs();
+        let overlap = radius_a + radius_b - center_distance;
 
         if overlap <= 0.0 {
             return None;
@@ -192,8 +166,8 @@ fn box_box(
         }
     }
 
-    let support_a = support_point(a_center, &a_axes, a_he, &min_axis);
-    let support_b = support_point(b_center, &b_axes, b_he, &-&min_axis);
+    let support_a = support_point(center_a, &axes_a, half_extents_a, &min_axis);
+    let support_b = support_point(center_b, &axes_b, half_extents_b, &-&min_axis);
     let contact = (support_a + &support_b) * 0.5;
 
     Some((
@@ -206,43 +180,56 @@ fn box_box(
 }
 
 fn build_manifold_for_pair(
-    a_idx: usize,
-    b_idx: usize,
-    a: &dyn PhysicalEntity,
-    b: &dyn PhysicalEntity,
+    index_a: usize,
+    index_b: usize,
+    entity_a: &dyn PhysicalEntity,
+    entity_b: &dyn PhysicalEntity,
 ) -> Option<Manifold> {
-    let (shape_a, angle_a) = extract_collider(a)?;
-    let (shape_b, angle_b) = extract_collider(b)?;
+    let collider_a = entity_a.collider()?;
+    let collider_b = entity_b.collider()?;
 
-    let (normal, contact) = match (shape_a, shape_b) {
+    let angle_a = entity_a.angle();
+    let angle_b = entity_b.angle();
+
+    let (normal, contact) = match (collider_a, collider_b) {
         (Collider2D::Circle { radius: ra }, Collider2D::Circle { radius: rb }) => {
-            circle_circle(a.pos(), *ra, b.pos(), *rb)?
+            detect_circle_circle(entity_a.pos(), *ra, entity_b.pos(), *rb)?
         }
-        (Collider2D::Box { half_extents: he }, Collider2D::Circle { radius: r }) => {
-            box_circle(a.pos(), angle_a, he, b.pos(), *r)?
-        }
-        (Collider2D::Circle { radius: r }, Collider2D::Box { half_extents: he }) => {
-            let (n, cp) = box_circle(b.pos(), angle_b, he, a.pos(), *r)?;
+        (Collider2D::Box { half_extents }, Collider2D::Circle { radius }) => detect_box_circle(
+            entity_a.pos(),
+            angle_a,
+            half_extents,
+            entity_b.pos(),
+            *radius,
+        )?,
+        (Collider2D::Circle { radius }, Collider2D::Box { half_extents }) => {
+            let (n, cp) = detect_box_circle(
+                entity_b.pos(),
+                angle_b,
+                half_extents,
+                entity_a.pos(),
+                *radius,
+            )?;
             (-n, cp)
         }
         (Collider2D::Box { half_extents: hea }, Collider2D::Box { half_extents: heb }) => {
-            box_box(a.pos(), angle_a, hea, b.pos(), angle_b, heb)?
+            detect_box_box(entity_a.pos(), angle_a, hea, entity_b.pos(), angle_b, heb)?
         }
     };
 
-    Some(Manifold::new(a_idx, b_idx, normal, vec![contact]))
+    Some(Manifold::new(index_a, index_b, normal, vec![contact]))
 }
 
 pub fn narrow_phase(
-    entities: &Vec<Box<dyn PhysicalEntity>>,
+    entities: &[Box<dyn PhysicalEntity>],
     pairs: &[(usize, usize)],
 ) -> Vec<Manifold> {
     pairs
         .iter()
-        .filter_map(|&(ia, ib)| {
-            let a = entities.get(ia)?;
-            let b = entities.get(ib)?;
-            build_manifold_for_pair(ia, ib, &**a, &**b)
+        .filter_map(|&(idx_a, idx_b)| {
+            let entity_a = entities.get(idx_a)?;
+            let entity_b = entities.get(idx_b)?;
+            build_manifold_for_pair(idx_a, idx_b, &**entity_a, &**entity_b)
         })
         .collect()
 }
