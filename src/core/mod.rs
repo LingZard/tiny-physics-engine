@@ -1,8 +1,11 @@
+pub mod collision;
+pub mod constraint;
 pub mod entity;
 pub mod integrator;
 pub mod particle;
+pub mod rigid_body;
+pub mod shape;
 pub mod world;
 
-pub use entity::PhysicalEntity;
-pub use integrator::{Integrator, integrate};
+pub use integrator::Integrator;
 pub use world::World;

@@ -1,15 +1,16 @@
+use macroquad::prelude as mq;
+use std::any::Any;
+
 use crate::core::World;
+use crate::core::entity::PhysicalEntity;
+use crate::core::{particle::Particle, rigid_body::RigidBody, shape::Collider2D};
 use crate::forces::{
     drag::LinearDrag,
     spring::{Spring, SpringEnd},
 };
 use crate::math::vec::Vec2;
-use macroquad::prelude as mq;
-use std::any::Any;
 
-// AI-generated code, for visualization only
-
-pub trait VisualForce {
+pub trait Drawable {
     fn draw(&self, _world: &World, _scale: f32) {}
 }
 
@@ -19,7 +20,7 @@ fn to_screen(p: &Vec2, scale: f32) -> (f32, f32) {
     (cx + p.x * scale, cy - p.y * scale)
 }
 
-fn draw_axes_and_ground() {
+pub fn draw_axes_and_ground() {
     let cx = mq::screen_width() * 0.5;
     let cy = mq::screen_height() * 0.5;
     mq::draw_line(0.0, cy, mq::screen_width(), cy, 1.0, mq::GRAY);
@@ -28,7 +29,7 @@ fn draw_axes_and_ground() {
     mq::draw_line(0.0, bottom_y, mq::screen_width(), bottom_y, 2.0, mq::GREEN);
 }
 
-fn draw_particles(world: &World, scale: f32) {
+pub fn draw_particles(world: &World, scale: f32) {
     for e in world.entities.iter() {
         let pos = e.pos();
         let (sx, sy) = to_screen(pos, scale);
@@ -50,15 +51,64 @@ fn draw_forces(world: &World, scale: f32) {
     }
 }
 
+fn draw_collider_at(pos: &Vec2, angle: f32, collider: &Collider2D, scale: f32) {
+    match collider {
+        Collider2D::Circle { radius } => {
+            let (sx, sy) = to_screen(pos, scale);
+            let rpx = radius * scale;
+            mq::draw_circle_lines(sx, sy, rpx, 2.0, mq::YELLOW);
+            let dir = Vec2::new(angle.cos(), angle.sin());
+            let tip = Vec2::new(pos.x + dir.x * radius, pos.y + dir.y * radius);
+            let (tx, ty) = to_screen(&tip, scale);
+            mq::draw_line(sx, sy, tx, ty, 2.0, mq::ORANGE);
+        }
+        Collider2D::Box { half_extents } => {
+            let (cx, cy) = to_screen(pos, scale);
+            let hw = half_extents.x * scale;
+            let hh = half_extents.y * scale;
+            let corners = [(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)];
+            let c = angle.cos();
+            let s = angle.sin();
+            let mut pts = Vec::with_capacity(4);
+            for (x, y) in corners {
+                let rx = x * c - y * s;
+                let ry = x * s + y * c;
+                pts.push((cx + rx, cy - ry));
+            }
+            for i in 0..4 {
+                let (x0, y0) = pts[i];
+                let (x1, y1) = pts[(i + 1) % 4];
+                mq::draw_line(x0, y0, x1, y1, 2.0, mq::YELLOW);
+            }
+        }
+    }
+}
+
+fn draw_entities(world: &World, scale: f32) {
+    for e in world.entities.iter() {
+        let any: &dyn Any = e.as_ref();
+        if let Some(rb) = any.downcast_ref::<RigidBody>() {
+            rb.draw(world, scale);
+            continue;
+        }
+        if let Some(p) = any.downcast_ref::<Particle>() {
+            p.draw(world, scale);
+            continue;
+        }
+        let (sx, sy) = to_screen(e.pos(), scale);
+        mq::draw_circle(sx, sy, 5.0, mq::WHITE);
+    }
+}
+
 pub fn draw_world(world: &World, scale: f32) {
     mq::clear_background(mq::Color::from_rgba(18, 18, 24, 255));
     draw_axes_and_ground();
     draw_forces(world, scale);
-    draw_particles(world, scale);
+    draw_entities(world, scale);
     draw_hud(world);
 }
 
-impl VisualForce for Spring {
+impl Drawable for Spring {
     fn draw(&self, world: &World, scale: f32) {
         let p_of = |end: &SpringEnd| -> Option<Vec2> {
             match end {
@@ -85,10 +135,8 @@ impl VisualForce for Spring {
     }
 }
 
-impl VisualForce for LinearDrag {
-    fn draw(&self, _world: &World, _scale: f32) {
-        // no-op visualization for drag
-    }
+impl Drawable for LinearDrag {
+    fn draw(&self, _world: &World, _scale: f32) {}
 }
 
 fn draw_hud(world: &World) {
@@ -105,7 +153,6 @@ fn draw_hud(world: &World) {
             py += m * v.y;
         }
     }
-
     let mut potential = 0.0f32;
     for g in world.forces.iter() {
         let any: &dyn Any = g.as_ref();
@@ -125,10 +172,8 @@ fn draw_hud(world: &World) {
                 let x = dist - s.rest;
                 potential += 0.5 * s.k * x * x;
             }
-            continue;
         }
     }
-
     let text = format!(
         "K={:.2}  U={:.2}  E={:.2}  P=({:.2},{:.2})  N={}",
         kinetic,
@@ -139,4 +184,22 @@ fn draw_hud(world: &World) {
         world.entities.len()
     );
     mq::draw_text(&text, 16.0, 24.0, 22.0, mq::WHITE);
+}
+
+impl Drawable for RigidBody {
+    fn draw(&self, _world: &World, scale: f32) {
+        if let Some(col) = &self.collider {
+            draw_collider_at(&self.pos, self.angle, col, scale);
+        } else {
+            let (sx, sy) = to_screen(&self.pos, scale);
+            mq::draw_circle(sx, sy, 6.0, mq::YELLOW);
+        }
+    }
+}
+
+impl Drawable for Particle {
+    fn draw(&self, _world: &World, scale: f32) {
+        let (sx, sy) = to_screen(self.pos(), scale);
+        mq::draw_circle(sx, sy, 6.0, mq::YELLOW);
+    }
 }

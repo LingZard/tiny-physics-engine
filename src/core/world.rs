@@ -1,6 +1,8 @@
 use super::{
+    collision::{broad_phase, narrow_phase},
+    constraint::ConstraintSolver,
     entity::PhysicalEntity,
-    integrator::{Integrator, integrate},
+    integrator::Integrator,
 };
 use crate::forces::ForceGen;
 use crate::math::vec::Vec2;
@@ -10,6 +12,9 @@ pub struct World {
     pub integrator: Integrator,
     pub entities: Vec<Box<dyn PhysicalEntity>>,
     pub forces: Vec<Box<dyn ForceGen>>,
+    pub solver: ConstraintSolver,
+    pub restitution: f32,
+    pub friction: f32,
 }
 
 impl World {
@@ -19,6 +24,9 @@ impl World {
             integrator,
             entities: Vec::new(),
             forces: Vec::new(),
+            solver: ConstraintSolver::new(10),
+            restitution: 0.3,
+            friction: 0.5,
         }
     }
 
@@ -31,12 +39,15 @@ impl World {
     }
 
     pub fn step(&mut self, dt: f32) {
-        // 1) clear
-        for e in self.entities.iter_mut() {
-            e.clear_forces();
+        if dt <= 0.0 {
+            return;
         }
 
-        // 2) gravity
+        for e in self.entities.iter_mut() {
+            e.clear_forces();
+            e.clear_torque();
+        }
+
         for e in self.entities.iter_mut() {
             let inv_m = e.inv_mass();
             if inv_m > 0.0 {
@@ -47,16 +58,35 @@ impl World {
             }
         }
 
-        // 3) external forces (avoid aliasing borrows)
         let forces = core::mem::take(&mut self.forces);
         for g in forces.iter() {
             g.apply(self);
         }
         self.forces = forces;
 
-        // 4) integrate
         for e in self.entities.iter_mut() {
-            integrate(&mut (**e), dt, self.integrator);
+            if e.inv_mass() > 0.0 {
+                let acc = e.force() * e.inv_mass();
+                *e.vel_mut() = e.vel() + &(acc * dt);
+            }
+            if e.inv_inertia() > 0.0 {
+                let alpha = e.torque() * e.inv_inertia();
+                *e.omega_mut() = e.omega() + alpha * dt;
+            }
+        }
+
+        let pairs = broad_phase::detect_sap(&self.entities);
+        let manifolds = narrow_phase::detect(&self.entities, &pairs);
+
+        self.solver
+            .build_constraints(&manifolds, &self.entities, self.restitution, self.friction);
+
+        self.solver.solve(&mut self.entities);
+
+        for e in self.entities.iter_mut() {
+            let new_pos = e.pos() + &(e.vel() * dt);
+            *e.pos_mut() = new_pos;
+            *e.angle_mut() = e.angle() + e.omega() * dt;
         }
     }
 }
