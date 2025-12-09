@@ -1,6 +1,8 @@
 use super::{
-    broad_phase::broad_phase_sap, constraint::ConstraintSolver, entity::PhysicalEntity,
-    integrator::Integrator, narrow_phase::narrow_phase,
+    collision::{broad_phase, narrow_phase},
+    constraint::ConstraintSolver,
+    entity::PhysicalEntity,
+    integrator::Integrator,
 };
 use crate::forces::ForceGen;
 use crate::math::vec::Vec2;
@@ -73,8 +75,8 @@ impl World {
             }
         }
 
-        let pairs = broad_phase_sap(&self.entities);
-        let manifolds = narrow_phase(&self.entities, &pairs);
+        let pairs = broad_phase::detect_sap(&self.entities);
+        let manifolds = narrow_phase::detect(&self.entities, &pairs);
 
         self.solver
             .build_constraints(&manifolds, &self.entities, self.restitution, self.friction);

@@ -1,5 +1,5 @@
+use super::collision::{ContactPoint, Manifold};
 use super::entity::PhysicalEntity;
-use super::narrow_phase::{ContactPoint, Manifold};
 use crate::math::vec::Vec2;
 
 #[derive(Debug)]

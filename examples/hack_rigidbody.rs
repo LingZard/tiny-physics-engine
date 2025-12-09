@@ -46,7 +46,7 @@ async fn main() {
     let mut accumulator = 0.0f32;
 
     let mut rb = RigidBody::box_xy(Vec2::new(0.0, 4.0), 0.3, 1.0, 40.0 / scale, 20.0 / scale);
-    rb.omega = 2.5; // 初始角速度
+    rb.omega = 2.5;
     world.add(Box::new(rb));
 
     loop {
