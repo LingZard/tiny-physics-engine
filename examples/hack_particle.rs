@@ -1,6 +1,6 @@
 use macroquad::prelude as mq;
 
-use tiny_physics_engine::core::{Integrator, World, particle::Particle};
+use tiny_physics_engine::core::{Integrator, Particle, World};
 use tiny_physics_engine::forces::spring::Spring;
 use tiny_physics_engine::math::vec::Vec2;
 

@@ -1,4 +1,4 @@
-use super::entity::PhysicalEntity;
+use super::body::PhysicalEntity;
 
 #[derive(Clone, Copy)]
 pub enum Integrator {

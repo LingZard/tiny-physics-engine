@@ -1,14 +1,7 @@
-//! Broad phase collision detection using Sweep and Prune (SAP).
-//!
-//! The broad phase quickly identifies potentially colliding pairs
-//! by sorting AABBs along the X axis and checking for overlaps.
-
 use std::any::Any;
 
-use crate::core::entity::PhysicalEntity;
-use crate::core::particle::Particle;
-use crate::core::rigid_body::RigidBody;
-use crate::core::shape::{Aabb, Collider2D};
+use super::{Aabb, Collider2D};
+use crate::core::body::{Particle, PhysicalEntity, RigidBody};
 use crate::math::vec::Vec2;
 
 /// Computes the AABB for an entity.

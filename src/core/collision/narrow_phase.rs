@@ -1,14 +1,7 @@
-//! Narrow phase collision detection.
-//!
-//! This module performs precise collision detection between entity pairs
-//! identified by the broad phase, generating contact manifolds.
-
 use super::manifold::Manifold;
-use super::{box_box, box_circle, circle_circle};
-use crate::core::entity::PhysicalEntity;
-use crate::core::shape::Collider2D;
+use super::{Collider2D, box_box, box_circle, circle_circle};
+use crate::core::body::PhysicalEntity;
 
-/// Builds a contact manifold for a pair of entities.
 fn build_manifold_for_pair(
     index_a: usize,
     index_b: usize,
@@ -54,10 +47,6 @@ fn build_manifold_for_pair(
     Some(Manifold::new(index_a, index_b, normal, contacts))
 }
 
-/// Performs narrow phase collision detection on entity pairs.
-///
-/// Takes a list of entities and pairs (from broad phase) and returns
-/// contact manifolds for all colliding pairs.
 pub fn detect(entities: &[Box<dyn PhysicalEntity>], pairs: &[(usize, usize)]) -> Vec<Manifold> {
     pairs
         .iter()

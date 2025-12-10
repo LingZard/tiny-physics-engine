@@ -1,5 +1,5 @@
-use super::collision::{ContactPoint, Manifold};
-use super::entity::PhysicalEntity;
+use crate::core::body::PhysicalEntity;
+use crate::core::collision::{ContactPoint, Manifold};
 use crate::math::vec::Vec2;
 
 #[derive(Debug)]

@@ -1,6 +1,6 @@
 use macroquad::prelude as mq;
 
-use tiny_physics_engine::core::{Integrator, World, rigid_body::RigidBody};
+use tiny_physics_engine::core::{Integrator, RigidBody, World};
 use tiny_physics_engine::math::vec::Vec2;
 
 #[cfg(not(feature = "visualize"))]
@@ -12,11 +12,11 @@ use tiny_physics_engine::utils::visualize::draw_world;
 
 #[macroquad::main("Tiny Physics — Box Stack")]
 async fn main() {
-    let gravity = Vec2::new(0.0, -0.1);
+    let gravity = Vec2::new(0.0, -9.81);
     let mut world = World::new(gravity, Integrator::SemiImplicitEuler);
     world.restitution = 0.2;
     world.friction = 0.5;
-    world.solver.iterations = 200;
+    world.solver.iterations = 20;
 
     let scale = 60.0;
     let fixed_dt = 1.0 / 240.0;
@@ -39,7 +39,7 @@ async fn main() {
     let box_w = 1.0;
     let box_h = 0.5;
     let box_mass = 1.0;
-    let stack_count = 5;
+    let stack_count = 8;
     let start_y = ground_y + ground_height * 0.5 + box_h * 0.5 + 0.01;
 
     for i in 0..stack_count {

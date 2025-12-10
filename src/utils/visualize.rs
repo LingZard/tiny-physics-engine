@@ -1,14 +1,22 @@
 use macroquad::prelude as mq;
 use std::any::Any;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::core::World;
-use crate::core::entity::PhysicalEntity;
-use crate::core::{particle::Particle, rigid_body::RigidBody, shape::Collider2D};
+use crate::core::{Collider2D, Particle, PhysicalEntity, RigidBody, World};
 use crate::forces::{
     drag::LinearDrag,
     spring::{Spring, SpringEnd},
 };
 use crate::math::vec::Vec2;
+
+static SHOW_CONTACTS: AtomicBool = AtomicBool::new(false);
+
+pub fn handle_debug_input() {
+    if mq::is_key_pressed(mq::KeyCode::V) {
+        let current = SHOW_CONTACTS.load(Ordering::Relaxed);
+        SHOW_CONTACTS.store(!current, Ordering::Relaxed);
+    }
+}
 
 pub trait Drawable {
     fn draw(&self, _world: &World, _scale: f32) {}
@@ -101,11 +109,14 @@ fn draw_entities(world: &World, scale: f32) {
 }
 
 pub fn draw_world(world: &World, scale: f32) {
+    handle_debug_input();
     mq::clear_background(mq::Color::from_rgba(18, 18, 24, 255));
     draw_axes_and_ground();
     draw_forces(world, scale);
     draw_entities(world, scale);
-    draw_contacts(world, scale);
+    if SHOW_CONTACTS.load(Ordering::Relaxed) {
+        draw_contacts(world, scale);
+    }
     draw_hud(world);
 }
 
@@ -195,15 +206,18 @@ fn draw_hud(world: &World) {
         }
     }
     let contact_count: usize = world.manifolds.iter().map(|m| m.points.len()).sum();
+    let show_contacts = SHOW_CONTACTS.load(Ordering::Relaxed);
+    let debug_status = if show_contacts { "ON" } else { "OFF" };
     let text = format!(
-        "K={:.2}  U={:.2}  E={:.2}  P=({:.2},{:.2})  N={}  C={}",
+        "K={:.2}  U={:.2}  E={:.2}  P=({:.2},{:.2})  N={}  C={}  [V]Debug:{}",
         kinetic,
         potential,
         kinetic + potential,
         px,
         py,
         world.entities.len(),
-        contact_count
+        contact_count,
+        debug_status
     );
     mq::draw_text(&text, 16.0, 24.0, 22.0, mq::WHITE);
 }

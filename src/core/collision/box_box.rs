@@ -200,16 +200,16 @@ pub fn detect(
             let normal = if best_axis == 2 {
                 // B's X axis
                 if dp_b.x > 0.0 {
-                    Vec2::new(rot_b.m00, rot_b.m10)
+                    Vec2::new(-rot_b.m00, -rot_b.m10) // B's -X direction (faces A)
                 } else {
-                    Vec2::new(-rot_b.m00, -rot_b.m10)
+                    Vec2::new(rot_b.m00, rot_b.m10) // B's +X direction (faces A)
                 }
             } else {
                 // B's Y axis
                 if dp_b.y > 0.0 {
-                    Vec2::new(rot_b.m01, rot_b.m11)
+                    Vec2::new(-rot_b.m01, -rot_b.m11) // B's -Y direction (faces A)
                 } else {
-                    Vec2::new(-rot_b.m01, -rot_b.m11)
+                    Vec2::new(rot_b.m01, rot_b.m11) // B's +Y direction (faces A)
                 }
             };
             (1, normal, half_extents_a, center_a, &rot_a)

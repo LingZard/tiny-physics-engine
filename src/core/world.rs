@@ -1,9 +1,7 @@
-use super::{
-    collision::{Manifold, broad_phase, narrow_phase},
-    constraint::ConstraintSolver,
-    entity::PhysicalEntity,
-    integrator::Integrator,
-};
+use super::body::PhysicalEntity;
+use super::collision::{Manifold, broad_phase, narrow_phase};
+use super::integrator::Integrator;
+use super::solver::ConstraintSolver;
 use crate::forces::ForceGen;
 use crate::math::vec::Vec2;
 
