@@ -12,11 +12,11 @@ use tiny_physics_engine::utils::visualize::draw_world;
 
 #[macroquad::main("Tiny Physics — Box Stack")]
 async fn main() {
-    let gravity = Vec2::new(0.0, -9.81);
+    let gravity = Vec2::new(0.0, -0.1);
     let mut world = World::new(gravity, Integrator::SemiImplicitEuler);
     world.restitution = 0.2;
     world.friction = 0.5;
-    world.solver.iterations = 20;
+    world.solver.iterations = 200;
 
     let scale = 60.0;
     let fixed_dt = 1.0 / 240.0;

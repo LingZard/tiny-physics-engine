@@ -1,5 +1,5 @@
 use super::{
-    collision::{broad_phase, narrow_phase},
+    collision::{Manifold, broad_phase, narrow_phase},
     constraint::ConstraintSolver,
     entity::PhysicalEntity,
     integrator::Integrator,
@@ -15,6 +15,8 @@ pub struct World {
     pub solver: ConstraintSolver,
     pub restitution: f32,
     pub friction: f32,
+    /// Debug: last frame's collision manifolds
+    pub manifolds: Vec<Manifold>,
 }
 
 impl World {
@@ -27,6 +29,7 @@ impl World {
             solver: ConstraintSolver::new(10),
             restitution: 0.3,
             friction: 0.5,
+            manifolds: Vec::new(),
         }
     }
 
@@ -78,8 +81,15 @@ impl World {
         let pairs = broad_phase::detect_sap(&self.entities);
         let manifolds = narrow_phase::detect(&self.entities, &pairs);
 
-        self.solver
-            .build_constraints(&manifolds, &self.entities, self.restitution, self.friction);
+        self.manifolds = manifolds;
+
+        self.solver.build_constraints(
+            &self.manifolds,
+            &self.entities,
+            self.restitution,
+            self.friction,
+            dt,
+        );
 
         self.solver.solve(&mut self.entities);
 

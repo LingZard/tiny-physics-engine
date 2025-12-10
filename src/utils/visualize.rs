@@ -105,7 +105,27 @@ pub fn draw_world(world: &World, scale: f32) {
     draw_axes_and_ground();
     draw_forces(world, scale);
     draw_entities(world, scale);
+    draw_contacts(world, scale);
     draw_hud(world);
+}
+
+fn draw_contacts(world: &World, scale: f32) {
+    for manifold in &world.manifolds {
+        let normal = &manifold.normal;
+        for cp in &manifold.points {
+            let (sx, sy) = to_screen(&cp.point, scale);
+            // Draw contact point
+            mq::draw_circle(sx, sy, 5.0, mq::RED);
+            // Draw normal
+            let normal_len = 0.3; // world units
+            let tip = &cp.point + &(normal * normal_len);
+            let (tx, ty) = to_screen(&tip, scale);
+            mq::draw_line(sx, sy, tx, ty, 2.0, mq::GREEN);
+            // Draw penetration text
+            let text = format!("{:.3}", cp.penetration);
+            mq::draw_text(&text, sx + 8.0, sy - 8.0, 16.0, mq::WHITE);
+        }
+    }
 }
 
 impl Drawable for Spring {
@@ -174,14 +194,16 @@ fn draw_hud(world: &World) {
             }
         }
     }
+    let contact_count: usize = world.manifolds.iter().map(|m| m.points.len()).sum();
     let text = format!(
-        "K={:.2}  U={:.2}  E={:.2}  P=({:.2},{:.2})  N={}",
+        "K={:.2}  U={:.2}  E={:.2}  P=({:.2},{:.2})  N={}  C={}",
         kinetic,
         potential,
         kinetic + potential,
         px,
         py,
-        world.entities.len()
+        world.entities.len(),
+        contact_count
     );
     mq::draw_text(&text, 16.0, 24.0, 22.0, mq::WHITE);
 }

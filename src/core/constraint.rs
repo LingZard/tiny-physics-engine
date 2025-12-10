@@ -34,6 +34,7 @@ impl ContactConstraint {
         friction: f32,
         baumgarte_factor: f32,
         slop: f32,
+        inv_dt: f32,
     ) -> Vec<Self> {
         let entity_a = match entities.get(manifold.a) {
             Some(e) => e,
@@ -60,6 +61,7 @@ impl ContactConstraint {
                     friction,
                     baumgarte_factor,
                     slop,
+                    inv_dt,
                 )
             })
             .collect()
@@ -77,6 +79,7 @@ impl ContactConstraint {
         friction: f32,
         baumgarte_factor: f32,
         slop: f32,
+        inv_dt: f32,
     ) -> Self {
         let r_a = &cp.point - entity_a.pos();
         let r_b = &cp.point - entity_b.pos();
@@ -102,7 +105,7 @@ impl ContactConstraint {
         let vel_along_normal = rel_vel.dot(normal);
 
         let velocity_bias = if cp.penetration > slop {
-            baumgarte_factor * (cp.penetration - slop)
+            baumgarte_factor * inv_dt * (cp.penetration - slop)
         } else {
             0.0
         };
@@ -237,8 +240,10 @@ impl ConstraintSolver {
         entities: &[Box<dyn PhysicalEntity>],
         restitution: f32,
         friction: f32,
+        dt: f32,
     ) {
         self.constraints.clear();
+        let inv_dt = if dt > 0.0 { 1.0 / dt } else { 0.0 };
         for manifold in manifolds {
             let mut constraints = ContactConstraint::from_manifold(
                 manifold,
@@ -247,6 +252,7 @@ impl ConstraintSolver {
                 friction,
                 self.baumgarte_factor,
                 self.slop,
+                inv_dt,
             );
             self.constraints.append(&mut constraints);
         }
