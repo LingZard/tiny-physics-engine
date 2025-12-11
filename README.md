@@ -9,8 +9,6 @@ The engine will focus on **2D physics simulation**, but its architecture will be
 
 ## 🧩 Code Philosophy
 
-> “代码应服务于理解，而非工程。”
-
 This is a **learning-oriented project**, not an engineering-oriented one.  
 The goal is **clarity and completeness of physical concepts**, not production-level optimization, modularity, or performance.
 

@@ -1,7 +1,6 @@
 use macroquad::prelude as mq;
 
-use tiny_physics_engine::core::entity::PhysicalEntity;
-use tiny_physics_engine::core::{Integrator, World, rigid_body::RigidBody};
+use tiny_physics_engine::core::{Integrator, PhysicalEntity, RigidBody, World};
 use tiny_physics_engine::math::vec::Vec2;
 
 #[cfg(not(feature = "visualize"))]

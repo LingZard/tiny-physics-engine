@@ -1,6 +1,6 @@
 use macroquad::prelude as mq;
 
-use tiny_physics_engine::core::{Integrator, World, particle::Particle};
+use tiny_physics_engine::core::{Integrator, Particle, World};
 use tiny_physics_engine::forces::spring::Spring;
 use tiny_physics_engine::math::vec::Vec2;
 
@@ -77,15 +77,15 @@ async fn main() {
     let mut accumulator = 0.0f32;
 
     if world.entities.len() >= 2 {
-        let p0 = world.entities[0].pos();
-        let p1 = world.entities[1].pos();
+        let p0 = *world.entities[0].pos();
+        let p1 = *world.entities[1].pos();
         let rest = (p1 - p0).length();
         world.add_force(Box::new(Spring::between(0, 1, 15.0, 1.5, rest)));
     }
     if world.entities.len() >= 3 {
         let anchor = Vec2::new(-3.0, 7.5);
-        let p2 = world.entities[2].pos();
-        let rest = (p2 - &anchor).length();
+        let p2 = *world.entities[2].pos();
+        let rest = (p2 - anchor).length();
         world.add_force(Box::new(Spring::to_anchor(2, anchor, 20.0, 2.5, rest)));
     }
 

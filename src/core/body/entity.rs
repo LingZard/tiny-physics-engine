@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use super::shape::Collider2D;
+use crate::core::collision::Collider2D;
 use crate::math::vec::Vec2;
 
 pub trait PhysicalEntity: Any {

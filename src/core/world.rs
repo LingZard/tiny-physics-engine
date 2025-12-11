@@ -1,9 +1,7 @@
-use super::{
-    collision::{broad_phase, narrow_phase},
-    constraint::ConstraintSolver,
-    entity::PhysicalEntity,
-    integrator::Integrator,
-};
+use super::body::PhysicalEntity;
+use super::collision::{Manifold, broad_phase, narrow_phase};
+use super::integrator::Integrator;
+use super::solver::ConstraintSolver;
 use crate::forces::ForceGen;
 use crate::math::vec::Vec2;
 
@@ -13,8 +11,7 @@ pub struct World {
     pub entities: Vec<Box<dyn PhysicalEntity>>,
     pub forces: Vec<Box<dyn ForceGen>>,
     pub solver: ConstraintSolver,
-    pub restitution: f32,
-    pub friction: f32,
+    pub manifolds: Vec<Manifold>,
 }
 
 impl World {
@@ -25,8 +22,7 @@ impl World {
             entities: Vec::new(),
             forces: Vec::new(),
             solver: ConstraintSolver::new(10),
-            restitution: 0.3,
-            friction: 0.5,
+            manifolds: Vec::new(),
         }
     }
 
@@ -34,7 +30,7 @@ impl World {
         self.entities.push(entity);
     }
 
-    pub fn add_force(&mut self, force: Box<dyn crate::forces::ForceGen>) {
+    pub fn add_force(&mut self, force: Box<dyn ForceGen>) {
         self.forces.push(force);
     }
 
@@ -43,49 +39,42 @@ impl World {
             return;
         }
 
-        for e in self.entities.iter_mut() {
+        for e in &mut self.entities {
             e.clear_forces();
             e.clear_torque();
         }
 
-        for e in self.entities.iter_mut() {
-            let inv_m = e.inv_mass();
-            if inv_m > 0.0 {
-                let mass = 1.0 / inv_m;
-                let fg = &self.gravity * mass;
-                let f = e.force() + &fg;
-                *e.force_mut() = f;
+        for e in &mut self.entities {
+            if e.inv_mass() > 0.0 {
+                let mass = 1.0 / e.inv_mass();
+                *e.force_mut() = *e.force() + self.gravity * mass;
             }
         }
 
         let forces = core::mem::take(&mut self.forces);
-        for g in forces.iter() {
-            g.apply(self);
+        for f in &forces {
+            f.apply(self);
         }
         self.forces = forces;
 
-        for e in self.entities.iter_mut() {
+        for e in &mut self.entities {
             if e.inv_mass() > 0.0 {
-                let acc = e.force() * e.inv_mass();
-                *e.vel_mut() = e.vel() + &(acc * dt);
+                *e.vel_mut() = *e.vel() + *e.force() * e.inv_mass() * dt;
             }
             if e.inv_inertia() > 0.0 {
-                let alpha = e.torque() * e.inv_inertia();
-                *e.omega_mut() = e.omega() + alpha * dt;
+                *e.omega_mut() = e.omega() + e.torque() * e.inv_inertia() * dt;
             }
         }
 
         let pairs = broad_phase::detect_sap(&self.entities);
-        let manifolds = narrow_phase::detect(&self.entities, &pairs);
+        self.manifolds = narrow_phase::detect(&self.entities, &pairs);
 
         self.solver
-            .build_constraints(&manifolds, &self.entities, self.restitution, self.friction);
-
+            .build_constraints(&self.manifolds, &self.entities, dt);
         self.solver.solve(&mut self.entities);
 
-        for e in self.entities.iter_mut() {
-            let new_pos = e.pos() + &(e.vel() * dt);
-            *e.pos_mut() = new_pos;
+        for e in &mut self.entities {
+            *e.pos_mut() = *e.pos() + *e.vel() * dt;
             *e.angle_mut() = e.angle() + e.omega() * dt;
         }
     }
