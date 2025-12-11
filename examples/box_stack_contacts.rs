@@ -15,8 +15,8 @@ async fn main() {
     let gravity = Vec2::new(0.0, -9.81);
     let mut world = World::new(gravity, Integrator::SemiImplicitEuler);
     world.restitution = 0.2;
-    world.friction = 0.5;
-    world.solver.iterations = 20;
+    world.friction = 0.8;
+    world.solver.iterations = 10;
 
     let scale = 60.0;
     let fixed_dt = 1.0 / 240.0;
@@ -25,7 +25,7 @@ async fn main() {
     // Static ground
     let ground_height = 0.5;
     let ground_width = 20.0;
-    let ground_y = -4.0 + ground_height * 0.5;
+    let ground_y = -6.0 + ground_height * 0.5;
     let ground = RigidBody::box_xy(
         Vec2::new(0.0, ground_y),
         0.0,
@@ -35,19 +35,27 @@ async fn main() {
     );
     world.add(Box::new(ground));
 
-    // Stack of boxes
+    // Pyramid of boxes (2D pyramid)
     let box_w = 1.0;
     let box_h = 0.5;
     let box_mass = 1.0;
-    let stack_count = 8;
+    let rows = 12;
+    let gap = 0.02;
+
     let start_y = ground_y + ground_height * 0.5 + box_h * 0.5 + 0.01;
 
-    for i in 0..stack_count {
-        let y = start_y + (box_h + 0.02) * i as f32;
-        // Slight offset for stability test
-        let x = 0.02 * (i % 2) as f32;
-        let rb = RigidBody::box_xy(Vec2::new(x, y), 0.0, box_mass, box_w, box_h);
-        world.add(Box::new(rb));
+    for row in 0..rows {
+        let row_count = rows - row;
+        let y = start_y + (box_h + gap) * row as f32;
+
+        let row_width = row_count as f32 * box_w + (row_count as f32 - 1.0) * gap;
+        let x_start = -0.5 * row_width + 0.5 * box_w;
+
+        for i in 0..row_count {
+            let x = x_start + i as f32 * (box_w + gap);
+            let rb = RigidBody::box_xy(Vec2::new(x, y), 0.0, box_mass, box_w, box_h);
+            world.add(Box::new(rb));
+        }
     }
 
     loop {
