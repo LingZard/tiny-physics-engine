@@ -1,6 +1,6 @@
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Vec2 {
     pub x: f32,
     pub y: f32,
@@ -12,169 +12,114 @@ impl Vec2 {
     }
 
     pub fn zero() -> Self {
-        Self::new(0.0, 0.0)
+        Self { x: 0.0, y: 0.0 }
     }
 
     pub fn one() -> Self {
-        Self::new(1.0, 1.0)
+        Self { x: 1.0, y: 1.0 }
     }
 
-    pub fn length(&self) -> f32 {
+    pub fn length(self) -> f32 {
         (self.x * self.x + self.y * self.y).sqrt()
     }
 
-    pub fn normalized(&self) -> Self {
-        let length = self.length();
-        Self::new(self.x / length, self.y / length)
-    }
-
-    pub fn dot(&self, other: &Self) -> f32 {
-        self.x * other.x + self.y * other.y
-    }
-
-    pub fn length_squared(&self) -> f32 {
+    pub fn length_squared(self) -> f32 {
         self.x * self.x + self.y * self.y
     }
 
-    pub fn perp(&self) -> Self {
-        Self::new(-self.y, self.x)
+    pub fn normalized(self) -> Self {
+        let len = self.length();
+        Self {
+            x: self.x / len,
+            y: self.y / len,
+        }
     }
 
-    pub fn try_normalize(&self) -> Option<Self> {
+    pub fn try_normalize(self) -> Option<Self> {
         let len_sq = self.length_squared();
         if len_sq > 1e-12 {
             let inv_len = 1.0 / len_sq.sqrt();
-            Some(Self::new(self.x * inv_len, self.y * inv_len))
+            Some(Self {
+                x: self.x * inv_len,
+                y: self.y * inv_len,
+            })
         } else {
             None
         }
     }
-}
 
-impl<'a, 'b> Add<&'b Vec2> for &'a Vec2 {
-    type Output = Vec2;
+    pub fn dot(self, other: Self) -> f32 {
+        self.x * other.x + self.y * other.y
+    }
 
-    fn add(self, rhs: &'b Vec2) -> Vec2 {
-        Vec2::new(self.x + rhs.x, self.y + rhs.y)
+    pub fn cross(self, other: Self) -> f32 {
+        self.x * other.y - self.y * other.x
+    }
+
+    pub fn perp(self) -> Self {
+        Self {
+            x: -self.y,
+            y: self.x,
+        }
     }
 }
 
-impl Add<&Vec2> for Vec2 {
-    type Output = Vec2;
-
-    fn add(self, rhs: &Vec2) -> Vec2 {
-        &self + rhs
+impl Add for Vec2 {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        Self {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
     }
 }
 
-impl Add<Vec2> for &Vec2 {
-    type Output = Vec2;
-
-    fn add(self, rhs: Vec2) -> Vec2 {
-        self + &rhs
-    }
-}
-
-impl Add<Vec2> for Vec2 {
-    type Output = Vec2;
-
-    fn add(self, rhs: Vec2) -> Vec2 {
-        &self + &rhs
-    }
-}
-
-impl<'a, 'b> Sub<&'b Vec2> for &'a Vec2 {
-    type Output = Vec2;
-
-    fn sub(self, rhs: &'b Vec2) -> Vec2 {
-        Vec2::new(self.x - rhs.x, self.y - rhs.y)
-    }
-}
-
-impl Sub<&Vec2> for Vec2 {
-    type Output = Vec2;
-
-    fn sub(self, rhs: &Vec2) -> Vec2 {
-        &self - rhs
-    }
-}
-
-impl Sub<Vec2> for &Vec2 {
-    type Output = Vec2;
-
-    fn sub(self, rhs: Vec2) -> Vec2 {
-        self - &rhs
-    }
-}
-
-impl Sub<Vec2> for Vec2 {
-    type Output = Vec2;
-
-    fn sub(self, rhs: Vec2) -> Vec2 {
-        &self - &rhs
-    }
-}
-
-impl<'a> Mul<f32> for &'a Vec2 {
-    type Output = Vec2;
-
-    fn mul(self, rhs: f32) -> Vec2 {
-        Vec2::new(self.x * rhs, self.y * rhs)
+impl Sub for Vec2 {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        Self {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
     }
 }
 
 impl Mul<f32> for Vec2 {
-    type Output = Vec2;
-
-    fn mul(self, rhs: f32) -> Vec2 {
-        &self * rhs
-    }
-}
-
-impl<'a> Div<f32> for &'a Vec2 {
-    type Output = Vec2;
-
-    fn div(self, rhs: f32) -> Vec2 {
-        Vec2::new(self.x / rhs, self.y / rhs)
-    }
-}
-
-impl Div<f32> for Vec2 {
-    type Output = Vec2;
-
-    fn div(self, rhs: f32) -> Vec2 {
-        &self / rhs
-    }
-}
-
-impl<'a> Neg for &'a Vec2 {
-    type Output = Vec2;
-
-    fn neg(self) -> Vec2 {
-        Vec2::new(-self.x, -self.y)
-    }
-}
-
-impl Neg for Vec2 {
-    type Output = Vec2;
-
-    fn neg(self) -> Vec2 {
-        -&self
-    }
-}
-
-impl<'a> Mul<&'a Vec2> for f32 {
-    type Output = Vec2;
-
-    fn mul(self, rhs: &'a Vec2) -> Vec2 {
-        Vec2::new(self * rhs.x, self * rhs.y)
+    type Output = Self;
+    fn mul(self, rhs: f32) -> Self {
+        Self {
+            x: self.x * rhs,
+            y: self.y * rhs,
+        }
     }
 }
 
 impl Mul<Vec2> for f32 {
     type Output = Vec2;
-
     fn mul(self, rhs: Vec2) -> Vec2 {
-        self * &rhs
+        Vec2 {
+            x: self * rhs.x,
+            y: self * rhs.y,
+        }
+    }
+}
+
+impl Div<f32> for Vec2 {
+    type Output = Self;
+    fn div(self, rhs: f32) -> Self {
+        Self {
+            x: self.x / rhs,
+            y: self.y / rhs,
+        }
+    }
+}
+
+impl Neg for Vec2 {
+    type Output = Self;
+    fn neg(self) -> Self {
+        Self {
+            x: -self.x,
+            y: -self.y,
+        }
     }
 }

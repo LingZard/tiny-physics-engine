@@ -14,8 +14,8 @@ use tiny_physics_engine::utils::visualize::draw_world;
 async fn main() {
     let gravity = Vec2::new(0.0, -9.81);
     let mut world = World::new(gravity, Integrator::SemiImplicitEuler);
-    world.restitution = 0.2;
-    world.friction = 0.8;
+    world.solver.params.restitution = 0.2;
+    world.solver.params.friction = 0.8;
     world.solver.iterations = 10;
 
     let scale = 60.0;

@@ -10,37 +10,43 @@ fn build_manifold_for_pair(
 ) -> Option<Manifold> {
     let collider_a = entity_a.collider()?;
     let collider_b = entity_b.collider()?;
-
     let angle_a = entity_a.angle();
     let angle_b = entity_b.angle();
 
     let (normal, contacts) = match (collider_a, collider_b) {
         (Collider2D::Circle { radius: ra }, Collider2D::Circle { radius: rb }) => {
-            let (n, c) = circle_circle::detect(entity_a.pos(), *ra, entity_b.pos(), *rb)?;
+            let (n, c) = circle_circle::detect(*entity_a.pos(), *ra, *entity_b.pos(), *rb)?;
             (n, vec![c])
         }
         (Collider2D::Box { half_extents }, Collider2D::Circle { radius }) => {
             let (n, c) = box_circle::detect(
-                entity_a.pos(),
+                *entity_a.pos(),
                 angle_a,
-                half_extents,
-                entity_b.pos(),
+                *half_extents,
+                *entity_b.pos(),
                 *radius,
             )?;
             (n, vec![c])
         }
         (Collider2D::Circle { radius }, Collider2D::Box { half_extents }) => {
             let (n, cp) = box_circle::detect(
-                entity_b.pos(),
+                *entity_b.pos(),
                 angle_b,
-                half_extents,
-                entity_a.pos(),
+                *half_extents,
+                *entity_a.pos(),
                 *radius,
             )?;
             (-n, vec![cp])
         }
         (Collider2D::Box { half_extents: hea }, Collider2D::Box { half_extents: heb }) => {
-            box_box::detect(entity_a.pos(), angle_a, hea, entity_b.pos(), angle_b, heb)?
+            box_box::detect(
+                *entity_a.pos(),
+                angle_a,
+                *hea,
+                *entity_b.pos(),
+                angle_b,
+                *heb,
+            )?
         }
     };
 

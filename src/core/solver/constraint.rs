@@ -1,118 +1,62 @@
+use std::collections::HashMap;
+
 use crate::core::body::PhysicalEntity;
 use crate::core::collision::{ContactPoint, Manifold};
 use crate::math::vec::Vec2;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ContactConstraint {
     pub index_a: usize,
     pub index_b: usize,
+    pub point: Vec2,
     pub normal: Vec2,
     pub tangent: Vec2,
-    pub point: Vec2,
     pub penetration: f32,
-
-    pub normal_mass: f32,
-    pub tangent_mass: f32,
-
     pub r_a: Vec2,
     pub r_b: Vec2,
-
-    pub accumulated_normal_impulse: f32,
-    pub accumulated_tangent_impulse: f32,
-
-    pub restitution: f32,
+    pub normal_mass: f32,
+    pub tangent_mass: f32,
+    pub jn: f32,
+    pub jt: f32,
+    pub bias: f32,
     pub friction: f32,
-
-    pub velocity_bias: f32,
 }
 
 impl ContactConstraint {
-    pub fn from_manifold(
-        manifold: &Manifold,
-        entities: &[Box<dyn PhysicalEntity>],
-        restitution: f32,
-        friction: f32,
-        baumgarte_factor: f32,
-        slop: f32,
-        inv_dt: f32,
-    ) -> Vec<Self> {
-        let entity_a = match entities.get(manifold.a) {
-            Some(e) => e,
-            None => return vec![],
-        };
-        let entity_b = match entities.get(manifold.b) {
-            Some(e) => e,
-            None => return vec![],
-        };
-
-        manifold
-            .points
-            .iter()
-            .map(|cp| {
-                Self::from_contact_point(
-                    manifold.a,
-                    manifold.b,
-                    &manifold.normal,
-                    &manifold.tangent,
-                    cp,
-                    &**entity_a,
-                    &**entity_b,
-                    restitution,
-                    friction,
-                    baumgarte_factor,
-                    slop,
-                    inv_dt,
-                )
-            })
-            .collect()
-    }
-
-    fn from_contact_point(
+    fn new(
         index_a: usize,
         index_b: usize,
-        normal: &Vec2,
-        tangent: &Vec2,
+        normal: Vec2,
         cp: &ContactPoint,
-        entity_a: &dyn PhysicalEntity,
-        entity_b: &dyn PhysicalEntity,
-        restitution: f32,
-        friction: f32,
-        baumgarte_factor: f32,
-        slop: f32,
+        a: &dyn PhysicalEntity,
+        b: &dyn PhysicalEntity,
+        params: &SolverParams,
         inv_dt: f32,
     ) -> Self {
-        let r_a = &cp.point - entity_a.pos();
-        let r_b = &cp.point - entity_b.pos();
+        let r_a = cp.point - *a.pos();
+        let r_b = cp.point - *b.pos();
+        let tangent = normal.perp();
 
-        let compute_effective_mass = |axis: &Vec2| {
-            let cross_a = r_a.x * axis.y - r_a.y * axis.x;
-            let cross_b = r_b.x * axis.y - r_b.y * axis.x;
-            let inv = entity_a.inv_mass()
-                + entity_b.inv_mass()
-                + cross_a * cross_a * entity_a.inv_inertia()
-                + cross_b * cross_b * entity_b.inv_inertia();
+        let eff_mass = |axis: Vec2| {
+            let rn_a = r_a.cross(axis);
+            let rn_b = r_b.cross(axis);
+            let inv = a.inv_mass()
+                + b.inv_mass()
+                + rn_a * rn_a * a.inv_inertia()
+                + rn_b * rn_b * b.inv_inertia();
             if inv > 1e-8 { 1.0 / inv } else { 0.0 }
         };
 
-        let normal_mass = compute_effective_mass(normal);
-        let tangent_mass = compute_effective_mass(tangent);
-
-        let vel_a =
-            entity_a.vel() + &Vec2::new(-entity_a.omega() * r_a.y, entity_a.omega() * r_a.x);
-        let vel_b =
-            entity_b.vel() + &Vec2::new(-entity_b.omega() * r_b.y, entity_b.omega() * r_b.x);
-        let rel_vel = vel_b - &vel_a;
-        let vel_along_normal = rel_vel.dot(normal);
-
-        let velocity_bias = if cp.penetration > slop {
-            baumgarte_factor * inv_dt * (cp.penetration - slop)
+        let penetration_bias = if cp.penetration > params.slop {
+            params.baumgarte * inv_dt * (cp.penetration - params.slop)
         } else {
             0.0
         };
 
-        let restitution_threshold = 1.0;
-        let restitution_bias = if vel_along_normal < -restitution_threshold {
-            -restitution * vel_along_normal
+        let rel_vel = velocity_at(r_b, b) - velocity_at(r_a, a);
+        let vn = rel_vel.dot(normal);
+        let restitution_bias = if vn < -1.0 {
+            -params.restitution * vn
         } else {
             0.0
         };
@@ -120,108 +64,144 @@ impl ContactConstraint {
         Self {
             index_a,
             index_b,
-            normal: *normal,
-            tangent: *tangent,
             point: cp.point,
+            normal,
+            tangent,
             penetration: cp.penetration,
-            normal_mass,
-            tangent_mass,
             r_a,
             r_b,
-            accumulated_normal_impulse: 0.0,
-            accumulated_tangent_impulse: 0.0,
-            restitution,
-            friction,
-            velocity_bias: velocity_bias + restitution_bias,
+            normal_mass: eff_mass(normal),
+            tangent_mass: eff_mass(tangent),
+            jn: 0.0,
+            jt: 0.0,
+            bias: penetration_bias + restitution_bias,
+            friction: params.friction,
         }
-    }
-
-    #[inline]
-    fn velocity_at_point(e: &dyn PhysicalEntity, r: &Vec2) -> Vec2 {
-        e.vel() + &Vec2::new(-e.omega() * r.y, e.omega() * r.x)
-    }
-
-    #[inline]
-    fn apply_impulse(e: &mut dyn PhysicalEntity, r: &Vec2, dir: &Vec2, magnitude: f32) {
-        let impulse = dir * magnitude;
-        *e.vel_mut() = e.vel() + &(e.inv_mass() * &impulse);
-        let torque = r.x * impulse.y - r.y * impulse.x;
-        *e.omega_mut() = e.omega() + e.inv_inertia() * torque;
     }
 
     pub fn solve_normal(&mut self, entities: &mut [Box<dyn PhysicalEntity>]) {
-        let (entity_a, entity_b) = get_entity_pair_mut(entities, self.index_a, self.index_b);
-        if entity_a.is_none() || entity_b.is_none() {
+        let Some((a, b)) = get_pair_mut(entities, self.index_a, self.index_b) else {
             return;
-        }
-        let (entity_a, entity_b) = (entity_a.unwrap(), entity_b.unwrap());
+        };
 
-        let rel_vel = Self::velocity_at_point(entity_b, &self.r_b)
-            - &Self::velocity_at_point(entity_a, &self.r_a);
-        let vel_along_normal = rel_vel.dot(&self.normal);
+        let vn = (velocity_at(self.r_b, b) - velocity_at(self.r_a, a)).dot(self.normal);
+        let lambda = -self.normal_mass * (vn - self.bias);
 
-        let lambda = -self.normal_mass * (vel_along_normal - self.velocity_bias);
+        let jn_old = self.jn;
+        self.jn = (jn_old + lambda).max(0.0);
+        let delta = self.jn - jn_old;
 
-        let old_impulse = self.accumulated_normal_impulse;
-        self.accumulated_normal_impulse = (old_impulse + lambda).max(0.0);
-        let delta_impulse = self.accumulated_normal_impulse - old_impulse;
-
-        Self::apply_impulse(entity_a, &self.r_a, &self.normal, -delta_impulse);
-        Self::apply_impulse(entity_b, &self.r_b, &self.normal, delta_impulse);
+        apply_impulse_pair(a, b, self.r_a, self.r_b, self.normal, delta);
     }
 
     pub fn solve_tangent(&mut self, entities: &mut [Box<dyn PhysicalEntity>]) {
-        let (entity_a, entity_b) = get_entity_pair_mut(entities, self.index_a, self.index_b);
-        if entity_a.is_none() || entity_b.is_none() {
+        let Some((a, b)) = get_pair_mut(entities, self.index_a, self.index_b) else {
+            return;
+        };
+
+        let vt = (velocity_at(self.r_b, b) - velocity_at(self.r_a, a)).dot(self.tangent);
+        let lambda = -self.tangent_mass * vt;
+
+        let max_jt = self.friction * self.jn;
+        let jt_old = self.jt;
+        self.jt = (jt_old + lambda).clamp(-max_jt, max_jt);
+        let delta = self.jt - jt_old;
+
+        apply_impulse_pair(a, b, self.r_a, self.r_b, self.tangent, delta);
+    }
+
+    fn apply_warm_start(&self, entities: &mut [Box<dyn PhysicalEntity>]) {
+        if self.jn == 0.0 && self.jt == 0.0 {
             return;
         }
-        let (entity_a, entity_b) = (entity_a.unwrap(), entity_b.unwrap());
-
-        let rel_vel = Self::velocity_at_point(entity_b, &self.r_b)
-            - &Self::velocity_at_point(entity_a, &self.r_a);
-        let vel_along_tangent = rel_vel.dot(&self.tangent);
-
-        let lambda = -self.tangent_mass * vel_along_tangent;
-
-        let max_friction = self.friction * self.accumulated_normal_impulse;
-        let old_impulse = self.accumulated_tangent_impulse;
-        self.accumulated_tangent_impulse =
-            (old_impulse + lambda).clamp(-max_friction, max_friction);
-        let delta_impulse = self.accumulated_tangent_impulse - old_impulse;
-
-        Self::apply_impulse(entity_a, &self.r_a, &self.tangent, -delta_impulse);
-        Self::apply_impulse(entity_b, &self.r_b, &self.tangent, delta_impulse);
+        let Some((a, b)) = get_pair_mut(entities, self.index_a, self.index_b) else {
+            return;
+        };
+        apply_impulse_pair(a, b, self.r_a, self.r_b, self.normal, self.jn);
+        apply_impulse_pair(a, b, self.r_a, self.r_b, self.tangent, self.jt);
     }
 }
 
-fn get_entity_pair_mut(
-    entities: &mut [Box<dyn PhysicalEntity>],
-    idx_a: usize,
-    idx_b: usize,
-) -> (
-    Option<&mut dyn PhysicalEntity>,
-    Option<&mut dyn PhysicalEntity>,
+#[inline]
+fn velocity_at(r: Vec2, e: &dyn PhysicalEntity) -> Vec2 {
+    *e.vel() + Vec2::new(-e.omega() * r.y, e.omega() * r.x)
+}
+
+#[inline]
+fn apply_impulse_pair(
+    a: &mut dyn PhysicalEntity,
+    b: &mut dyn PhysicalEntity,
+    r_a: Vec2,
+    r_b: Vec2,
+    dir: Vec2,
+    magnitude: f32,
 ) {
-    if idx_a == idx_b {
-        return (None, None);
+    let impulse = dir * magnitude;
+    *a.vel_mut() = *a.vel() - a.inv_mass() * impulse;
+    *a.omega_mut() = a.omega() - a.inv_inertia() * r_a.cross(impulse);
+    *b.vel_mut() = *b.vel() + b.inv_mass() * impulse;
+    *b.omega_mut() = b.omega() + b.inv_inertia() * r_b.cross(impulse);
+}
+
+fn get_pair_mut(
+    entities: &mut [Box<dyn PhysicalEntity>],
+    i: usize,
+    j: usize,
+) -> Option<(&mut dyn PhysicalEntity, &mut dyn PhysicalEntity)> {
+    if i == j || i >= entities.len() || j >= entities.len() {
+        return None;
     }
+    let (lo, hi) = if i < j { (i, j) } else { (j, i) };
+    let (left, right) = entities.split_at_mut(hi);
+    let a = &mut *left[lo];
+    let b = &mut *right[0];
+    Some(if i < j { (a, b) } else { (b, a) })
+}
 
-    let (left, right) = if idx_a < idx_b {
-        let (left, right) = entities.split_at_mut(idx_b);
-        (Some(&mut *left[idx_a]), right.get_mut(0).map(|e| &mut **e))
-    } else {
-        let (left, right) = entities.split_at_mut(idx_a);
-        (right.get_mut(0).map(|e| &mut **e), Some(&mut *left[idx_b]))
-    };
+const CELL_SIZE: f32 = 0.05;
 
-    (left, right)
+#[derive(Hash, Eq, PartialEq, Clone, Copy)]
+struct CacheKey {
+    pair: (usize, usize),
+    cell: (i32, i32),
+}
+
+impl CacheKey {
+    fn new(c: &ContactConstraint) -> Self {
+        Self {
+            pair: (c.index_a, c.index_b),
+            cell: (
+                (c.point.x / CELL_SIZE).round() as i32,
+                (c.point.y / CELL_SIZE).round() as i32,
+            ),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct SolverParams {
+    pub baumgarte: f32,
+    pub slop: f32,
+    pub restitution: f32,
+    pub friction: f32,
+}
+
+impl Default for SolverParams {
+    fn default() -> Self {
+        Self {
+            baumgarte: 0.2,
+            slop: 0.01,
+            restitution: 0.3,
+            friction: 0.5,
+        }
+    }
 }
 
 pub struct ConstraintSolver {
     pub constraints: Vec<ContactConstraint>,
     pub iterations: usize,
-    pub baumgarte_factor: f32,
-    pub slop: f32,
+    pub params: SolverParams,
+    cache: HashMap<CacheKey, (f32, f32)>,
 }
 
 impl ConstraintSolver {
@@ -229,8 +209,8 @@ impl ConstraintSolver {
         Self {
             constraints: Vec::new(),
             iterations,
-            baumgarte_factor: 0.2,
-            slop: 0.01,
+            params: SolverParams::default(),
+            cache: HashMap::new(),
         }
     }
 
@@ -238,33 +218,52 @@ impl ConstraintSolver {
         &mut self,
         manifolds: &[Manifold],
         entities: &[Box<dyn PhysicalEntity>],
-        restitution: f32,
-        friction: f32,
         dt: f32,
     ) {
+        self.cache.clear();
+        for c in &self.constraints {
+            if c.jn != 0.0 || c.jt != 0.0 {
+                self.cache.insert(CacheKey::new(c), (c.jn, c.jt));
+            }
+        }
+
         self.constraints.clear();
         let inv_dt = if dt > 0.0 { 1.0 / dt } else { 0.0 };
+
         for manifold in manifolds {
-            let mut constraints = ContactConstraint::from_manifold(
-                manifold,
-                entities,
-                restitution,
-                friction,
-                self.baumgarte_factor,
-                self.slop,
-                inv_dt,
-            );
-            self.constraints.append(&mut constraints);
+            let (Some(a), Some(b)) = (entities.get(manifold.a), entities.get(manifold.b)) else {
+                continue;
+            };
+            for cp in &manifold.points {
+                let mut c = ContactConstraint::new(
+                    manifold.a,
+                    manifold.b,
+                    manifold.normal,
+                    cp,
+                    &**a,
+                    &**b,
+                    &self.params,
+                    inv_dt,
+                );
+                if let Some(&(jn, jt)) = self.cache.get(&CacheKey::new(&c)) {
+                    c.jn = jn;
+                    c.jt = jt;
+                }
+                self.constraints.push(c);
+            }
         }
     }
 
     pub fn solve(&mut self, entities: &mut [Box<dyn PhysicalEntity>]) {
+        for c in &self.constraints {
+            c.apply_warm_start(entities);
+        }
         for _ in 0..self.iterations {
-            for constraint in &mut self.constraints {
-                constraint.solve_normal(entities);
+            for c in &mut self.constraints {
+                c.solve_normal(entities);
             }
-            for constraint in &mut self.constraints {
-                constraint.solve_tangent(entities);
+            for c in &mut self.constraints {
+                c.solve_tangent(entities);
             }
         }
     }

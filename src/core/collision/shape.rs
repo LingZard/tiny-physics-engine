@@ -14,6 +14,7 @@ impl Aabb {
     pub fn new(min: Vec2, max: Vec2) -> Self {
         Self { min, max }
     }
+
     pub fn overlaps(&self, other: &Aabb) -> bool {
         !(self.max.x < other.min.x
             || self.min.x > other.max.x
@@ -37,11 +38,11 @@ impl Collider2D {
         }
     }
 
-    pub fn aabb(&self, pos: &Vec2, angle: f32) -> Aabb {
+    pub fn aabb(&self, pos: Vec2, angle: f32) -> Aabb {
         match self {
             Collider2D::Circle { radius } => {
                 let ext = Vec2::new(*radius, *radius);
-                Aabb::new(pos - &ext, pos + &ext)
+                Aabb::new(pos - ext, pos + ext)
             }
             Collider2D::Box { half_extents } => {
                 let c = angle.cos().abs();
@@ -49,7 +50,7 @@ impl Collider2D {
                 let ex = c * half_extents.x + s * half_extents.y;
                 let ey = s * half_extents.x + c * half_extents.y;
                 let ext = Vec2::new(ex, ey);
-                Aabb::new(pos - &ext, pos + &ext)
+                Aabb::new(pos - ext, pos + ext)
             }
         }
     }

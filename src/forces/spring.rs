@@ -1,7 +1,6 @@
+use super::ForceGen;
 use crate::core::World;
 use crate::math::vec::Vec2;
-
-use super::ForceGen;
 
 pub enum SpringEnd {
     Entity(usize),
@@ -26,6 +25,7 @@ impl Spring {
             rest,
         }
     }
+
     pub fn to_anchor(i: usize, anchor: Vec2, k: f32, c: f32, rest: f32) -> Self {
         Self {
             a: SpringEnd::Entity(i),
@@ -39,25 +39,32 @@ impl Spring {
 
 impl ForceGen for Spring {
     fn apply(&self, world: &mut World) {
-        let (pa, va, inv_ma) = match self.a {
+        let (pa, va, inv_ma) = match &self.a {
             SpringEnd::Entity(i) => {
-                if i >= world.entities.len() {
-                    return;
+                let e = world
+                    .entities
+                    .get(*i)
+                    .map(|e| (*e.pos(), *e.vel(), e.inv_mass()));
+                match e {
+                    Some(v) => v,
+                    None => return,
                 }
-                let e = &world.entities[i];
-                (&*e.pos(), &*e.vel(), e.inv_mass())
             }
-            SpringEnd::Anchor(ref p) => (p, &Vec2::zero(), 0.0),
+            SpringEnd::Anchor(p) => (*p, Vec2::zero(), 0.0),
         };
-        let (pb, vb, inv_mb) = match self.b {
+
+        let (pb, vb, inv_mb) = match &self.b {
             SpringEnd::Entity(j) => {
-                if j >= world.entities.len() {
-                    return;
+                let e = world
+                    .entities
+                    .get(*j)
+                    .map(|e| (*e.pos(), *e.vel(), e.inv_mass()));
+                match e {
+                    Some(v) => v,
+                    None => return,
                 }
-                let e = &world.entities[j];
-                (&*e.pos(), &*e.vel(), e.inv_mass())
             }
-            SpringEnd::Anchor(ref p) => (p, &Vec2::zero(), 0.0),
+            SpringEnd::Anchor(p) => (*p, Vec2::zero(), 0.0),
         };
 
         let displacement = pa - pb;
@@ -65,31 +72,26 @@ impl ForceGen for Spring {
         if distance < 1e-6 {
             return;
         }
+
         let direction = displacement / distance;
-
         let extension = distance - self.rest;
-        let f_spring = &direction * (-self.k * extension);
+        let f_spring = direction * (-self.k * extension);
         let v_rel = va - vb;
-        let axial = v_rel.dot(&direction);
-        let f_damp = &direction * (-self.c * axial);
+        let axial = v_rel.dot(direction);
+        let f_damp = direction * (-self.c * axial);
         let f_a = f_spring + f_damp;
-        let f_b = -&f_a;
 
-        match self.a {
-            SpringEnd::Entity(i) if inv_ma > 0.0 => {
+        if let SpringEnd::Entity(i) = self.a {
+            if inv_ma > 0.0 {
                 let e = &mut world.entities[i];
-                let updated = e.force() + &f_a;
-                *e.force_mut() = updated;
+                *e.force_mut() = *e.force() + f_a;
             }
-            _ => {}
         }
-        match self.b {
-            SpringEnd::Entity(j) if inv_mb > 0.0 => {
+        if let SpringEnd::Entity(j) = self.b {
+            if inv_mb > 0.0 {
                 let e = &mut world.entities[j];
-                let updated = e.force() + &f_b;
-                *e.force_mut() = updated;
+                *e.force_mut() = *e.force() - f_a;
             }
-            _ => {}
         }
     }
 }
