@@ -192,20 +192,58 @@ fn draw_hud(world: &World) {
     }
 
     let contact_count: usize = world.manifolds.iter().map(|m| m.points.len()).sum();
+
+    // Stability metrics: max penetration, max |vn| at contact points.
+    let mut max_penetration = 0.0f32;
+    let mut max_abs_vn = 0.0f32;
+    for manifold in &world.manifolds {
+        let Some(a) = world.entities.get(manifold.a) else {
+            continue;
+        };
+        let Some(b) = world.entities.get(manifold.b) else {
+            continue;
+        };
+
+        let normal = manifold.normal;
+        for cp in &manifold.points {
+            if cp.penetration > max_penetration {
+                max_penetration = cp.penetration;
+            }
+
+            let r_a = cp.point - *a.pos();
+            let r_b = cp.point - *b.pos();
+            let va = *a.vel() + Vec2::new(-a.omega() * r_a.y, a.omega() * r_a.x);
+            let vb = *b.vel() + Vec2::new(-b.omega() * r_b.y, b.omega() * r_b.x);
+            let vn = (vb - va).dot(normal);
+            let abs_vn = vn.abs();
+            if abs_vn > max_abs_vn {
+                max_abs_vn = abs_vn;
+            }
+        }
+    }
+
+    let constraints = world.solver.constraints.len();
+    let iterations = world.solver.iterations;
     let debug = if SHOW_CONTACTS.load(Ordering::Relaxed) {
         "ON"
     } else {
         "OFF"
     };
+
+    // Fixed width + fixed decimals to avoid text "jumping" as numbers change.
     let text = format!(
-        "K={:.2}  U={:.2}  E={:.2}  P=({:.2},{:.2})  N={}  C={}  [V]Debug:{}",
+        "K={:>9.3}  U={:>9.3}  E={:>9.3}  P=({:>8.3},{:>8.3})  pen={:>6.3}  |vn|={:>7.3}  N={:>3}  cp={:>3}  con={:>3}  it={:>2}  [V]Debug:{}",
         kinetic,
         potential,
         kinetic + potential,
         px,
         py,
+        max_penetration,
+        max_abs_vn,
         world.entities.len(),
         contact_count,
+        constraints,
+        iterations,
         debug
     );
     mq::draw_text(&text, 16.0, 24.0, 22.0, mq::WHITE);

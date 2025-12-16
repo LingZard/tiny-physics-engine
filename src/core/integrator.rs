@@ -7,33 +7,43 @@ pub enum Integrator {
     SemiImplicitEuler,
 }
 
-pub fn integrate(entity: &mut dyn PhysicalEntity, dt: f32, integrator: Integrator) {
+/// Integrate linear/angular velocity using accumulated force/torque.
+///
+/// Note: this does NOT clear force/torque; the caller controls accumulator lifetime.
+pub fn integrate_velocity(entity: &mut dyn PhysicalEntity, dt: f32, integrator: Integrator) {
+    if dt <= 0.0 {
+        return;
+    }
     let a = *entity.force() * entity.inv_mass();
+    let alpha = entity.torque() * entity.inv_inertia();
     match integrator {
-        Integrator::ExplicitEuler => {
-            let new_pos = *entity.pos() + *entity.vel() * dt;
-            let new_vel = *entity.vel() + a * dt;
-            *entity.pos_mut() = new_pos;
-            *entity.vel_mut() = new_vel;
-
-            let alpha = entity.torque() * entity.inv_inertia();
-            let new_angle = entity.angle() + entity.omega() * dt;
-            let new_omega = entity.omega() + alpha * dt;
-            *entity.angle_mut() = new_angle;
-            *entity.omega_mut() = new_omega;
-        }
-        Integrator::SemiImplicitEuler => {
-            let new_vel = *entity.vel() + a * dt;
-            *entity.vel_mut() = new_vel;
-            let new_pos = *entity.pos() + *entity.vel() * dt;
-            *entity.pos_mut() = new_pos;
-
-            let alpha = entity.torque() * entity.inv_inertia();
-            let new_omega = entity.omega() + alpha * dt;
-            *entity.omega_mut() = new_omega;
-            let new_angle = entity.angle() + entity.omega() * dt;
-            *entity.angle_mut() = new_angle;
+        Integrator::ExplicitEuler | Integrator::SemiImplicitEuler => {
+            *entity.vel_mut() = *entity.vel() + a * dt;
+            *entity.omega_mut() = entity.omega() + alpha * dt;
         }
     }
-    entity.clear_torque();
+}
+
+/// Integrate position/orientation from the current velocity.
+pub fn integrate_position(entity: &mut dyn PhysicalEntity, dt: f32, _integrator: Integrator) {
+    if dt <= 0.0 {
+        return;
+    }
+    *entity.pos_mut() = *entity.pos() + *entity.vel() * dt;
+    *entity.angle_mut() = entity.angle() + entity.omega() * dt;
+}
+
+pub fn integrate(entity: &mut dyn PhysicalEntity, dt: f32, integrator: Integrator) {
+    match integrator {
+        Integrator::ExplicitEuler => {
+            // Euler: position from old velocity, then update velocity.
+            integrate_position(entity, dt, integrator);
+            integrate_velocity(entity, dt, integrator);
+        }
+        Integrator::SemiImplicitEuler => {
+            // Symplectic Euler: velocity first, then position from new velocity.
+            integrate_velocity(entity, dt, integrator);
+            integrate_position(entity, dt, integrator);
+        }
+    }
 }

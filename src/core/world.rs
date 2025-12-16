@@ -1,6 +1,6 @@
 use super::body::PhysicalEntity;
 use super::collision::{Manifold, broad_phase, narrow_phase};
-use super::integrator::Integrator;
+use super::integrator::{Integrator, integrate_position, integrate_velocity};
 use super::solver::ConstraintSolver;
 use crate::forces::ForceGen;
 use crate::math::vec::Vec2;
@@ -34,16 +34,25 @@ impl World {
         self.forces.push(force);
     }
 
+    /// One simulation step:
+    /// 1) clear accumulators
+    /// 2) apply gravity + external forces
+    /// 3) integrate velocity
+    /// 4) collision detect (broad + narrow)
+    /// 5) solve contacts (sequential impulse)
+    /// 6) integrate position
     pub fn step(&mut self, dt: f32) {
         if dt <= 0.0 {
             return;
         }
 
+        // (1) Clear accumulators.
         for e in &mut self.entities {
             e.clear_forces();
             e.clear_torque();
         }
 
+        // (2) Apply gravity as force: F = m * g.
         for e in &mut self.entities {
             if e.inv_mass() > 0.0 {
                 let mass = 1.0 / e.inv_mass();
@@ -51,31 +60,31 @@ impl World {
             }
         }
 
+        // (2) Apply user force generators (springs, drag, ...).
+        // Take the vec to avoid borrow conflicts while `apply` mut-borrows `self`.
         let forces = core::mem::take(&mut self.forces);
         for f in &forces {
             f.apply(self);
         }
         self.forces = forces;
 
+        // (3) Integrate velocities from accumulated force/torque.
         for e in &mut self.entities {
-            if e.inv_mass() > 0.0 {
-                *e.vel_mut() = *e.vel() + *e.force() * e.inv_mass() * dt;
-            }
-            if e.inv_inertia() > 0.0 {
-                *e.omega_mut() = e.omega() + e.torque() * e.inv_inertia() * dt;
-            }
+            integrate_velocity(&mut **e, dt, self.integrator);
         }
 
+        // (4) Detect collisions at current configuration (positions are advanced after solving).
         let pairs = broad_phase::detect_sap(&self.entities);
         self.manifolds = narrow_phase::detect(&self.entities, &pairs);
 
+        // (5) Build constraints and solve impulses (modifies velocities/omegas).
         self.solver
             .build_constraints(&self.manifolds, &self.entities, dt);
         self.solver.solve(&mut self.entities);
 
+        // (6) Integrate positions from the final velocities.
         for e in &mut self.entities {
-            *e.pos_mut() = *e.pos() + *e.vel() * dt;
-            *e.angle_mut() = e.angle() + e.omega() * dt;
+            integrate_position(&mut **e, dt, self.integrator);
         }
     }
 }
