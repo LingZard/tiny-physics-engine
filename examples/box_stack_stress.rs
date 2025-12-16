@@ -16,10 +16,10 @@ async fn main() {
     let mut world = World::new(gravity, Integrator::SemiImplicitEuler);
     world.solver.params.restitution = 0.1;
     world.solver.params.friction = 0.8;
-    world.solver.iterations = 20;
+    world.solver.iterations = 5;
 
     let scale = 60.0;
-    let fixed_dt = 1.0 / 240.0;
+    let fixed_dt = 1.0 / 30.0;
     let mut accumulator = 0.0f32;
 
     // Static ground
