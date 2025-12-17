@@ -2,6 +2,8 @@ use super::manifold::ContactPoint;
 use crate::math::mat::Mat2;
 use crate::math::vec::Vec2;
 
+const SPECULATIVE_DISTANCE: f32 = 0.05;
+
 fn clip_segment_to_line(v_in: &[Vec2], normal: Vec2, offset: f32) -> Vec<Vec2> {
     let mut v_out = Vec::new();
     if v_in.len() < 2 {
@@ -81,22 +83,22 @@ pub fn detect(
     let abs_c_t = abs_c.transpose();
 
     let face_a_x = dp_a.x.abs() - (half_a.x + abs_c.m00 * half_b.x + abs_c.m01 * half_b.y);
-    if face_a_x > 0.0 {
+    if face_a_x > SPECULATIVE_DISTANCE {
         return None;
     }
 
     let face_a_y = dp_a.y.abs() - (half_a.y + abs_c.m10 * half_b.x + abs_c.m11 * half_b.y);
-    if face_a_y > 0.0 {
+    if face_a_y > SPECULATIVE_DISTANCE {
         return None;
     }
 
     let face_b_x = dp_b.x.abs() - (half_b.x + abs_c_t.m00 * half_a.x + abs_c_t.m01 * half_a.y);
-    if face_b_x > 0.0 {
+    if face_b_x > SPECULATIVE_DISTANCE {
         return None;
     }
 
     let face_b_y = dp_b.y.abs() - (half_b.y + abs_c_t.m10 * half_a.x + abs_c_t.m11 * half_a.y);
-    if face_b_y > 0.0 {
+    if face_b_y > SPECULATIVE_DISTANCE {
         return None;
     }
 
@@ -185,9 +187,11 @@ pub fn detect(
     let mut contacts = Vec::new();
     for v_local in clip2 {
         let sep = ref_normal_local.dot(v_local) - front_off;
-        if sep <= 0.0 {
+        // Allow small separation for speculative contacts.
+        if sep <= SPECULATIVE_DISTANCE {
             contacts.push(ContactPoint {
                 point: ref_rot.mul_vec2(v_local) + ref_center,
+                // sep>0 => separated (speculative), sep<0 => overlapping
                 penetration: -sep,
             });
         }

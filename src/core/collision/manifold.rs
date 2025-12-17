@@ -5,7 +5,9 @@ use crate::math::vec::Vec2;
 pub struct ContactPoint {
     /// World-space position of the contact point.
     pub point: Vec2,
-    /// Penetration depth (positive means overlapping).
+    /// Signed penetration depth.
+    /// - **positive**: overlapping (penetration)
+    /// - **negative**: separated (speculative contact / separation distance)
     pub penetration: f32,
 }
 

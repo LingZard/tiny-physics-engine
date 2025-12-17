@@ -1,6 +1,8 @@
 use super::manifold::ContactPoint;
 use crate::math::vec::Vec2;
 
+const SPECULATIVE_DISTANCE: f32 = 0.05;
+
 pub fn detect(
     center_a: Vec2,
     radius_a: f32,
@@ -11,13 +13,14 @@ pub fn detect(
     let dist_sq = delta.length_squared();
     let radius_sum = radius_a + radius_b;
 
-    if dist_sq > radius_sum * radius_sum {
+    let max_dist = radius_sum + SPECULATIVE_DISTANCE;
+    if dist_sq > max_dist * max_dist {
         return None;
     }
 
     let (normal, penetration) = delta
         .try_normalize()
-        .map(|n| (n, radius_sum - dist_sq.sqrt()))
+        .map(|n| (n, radius_sum - dist_sq.sqrt())) // penetration can be negative => separation
         .unwrap_or((Vec2::new(1.0, 0.0), radius_sum));
 
     let contact_point = center_a + normal * radius_a;
