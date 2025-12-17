@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::core::body::PhysicalEntity;
 use crate::core::collision::{ContactPoint, Manifold};
+use crate::math::mat::Mat2;
 use crate::math::vec::Vec2;
 
 #[derive(Debug, Clone)]
@@ -10,8 +11,8 @@ pub struct ContactConstraint {
     pub index_b: usize,
     pub normal: Vec2,
     pub tangent: Vec2,
-    pub anchor_a: Vec2,
-    pub anchor_b: Vec2,
+    pub local_anchor_a: Vec2,
+    pub local_anchor_b: Vec2,
     pub base_separation: f32,
     pub normal_mass: f32,
     pub tangent_mass: f32,
@@ -30,14 +31,22 @@ impl ContactConstraint {
         a: &dyn PhysicalEntity,
         b: &dyn PhysicalEntity,
     ) -> Self {
-        // Fixed anchors relative to body centers
-        let anchor_a = cp.point - *a.pos();
-        let anchor_b = cp.point - *b.pos();
+        // Store anchors in local space so warm-start matching is stable under rotation.
+        let r_a_world0 = cp.point - *a.pos();
+        let r_b_world0 = cp.point - *b.pos();
+        let rot_a_t = Mat2::rotation(a.angle()).transpose(); // inverse rotation
+        let rot_b_t = Mat2::rotation(b.angle()).transpose(); // inverse rotation
+        let local_anchor_a = rot_a_t.mul_vec2(r_a_world0);
+        let local_anchor_b = rot_b_t.mul_vec2(r_b_world0);
+
+        // World-space anchors at build time (for mass + restitution computation).
+        let r_a = Mat2::rotation(a.angle()).mul_vec2(local_anchor_a);
+        let r_b = Mat2::rotation(b.angle()).mul_vec2(local_anchor_b);
         let tangent = normal.perp();
 
         let eff_mass = |axis: Vec2| {
-            let rn_a = anchor_a.cross(axis);
-            let rn_b = anchor_b.cross(axis);
+            let rn_a = r_a.cross(axis);
+            let rn_b = r_b.cross(axis);
             let inv = a.inv_mass()
                 + b.inv_mass()
                 + rn_a * rn_a * a.inv_inertia()
@@ -45,10 +54,12 @@ impl ContactConstraint {
             if inv > 1e-8 { 1.0 / inv } else { 0.0 }
         };
 
-        let base_separation = -cp.penetration - (anchor_b - anchor_a).dot(normal);
+        // Define separation so that at build time (no deltas), separation = -penetration.
+        // `penetration` is positive when overlapping, negative when separated.
+        let base_separation = -cp.penetration;
 
         // Save relative velocity for restitution (computed once at constraint build time)
-        let rel_vel = velocity_at(anchor_b, b) - velocity_at(anchor_a, a);
+        let rel_vel = velocity_at(r_b, b) - velocity_at(r_a, a);
         let relative_velocity = rel_vel.dot(normal);
 
         Self {
@@ -56,8 +67,8 @@ impl ContactConstraint {
             index_b,
             normal,
             tangent,
-            anchor_a,
-            anchor_b,
+            local_anchor_a,
+            local_anchor_b,
             base_separation,
             normal_mass: eff_mass(normal),
             tangent_mass: eff_mass(tangent),
@@ -72,7 +83,7 @@ impl ContactConstraint {
     pub fn solve_normal(
         &mut self,
         entities: &mut [Box<dyn PhysicalEntity>],
-        inv_dt: f32,
+        dt: f32,
         params: &SolverParams,
         use_bias: bool,
     ) {
@@ -80,41 +91,32 @@ impl ContactConstraint {
             return;
         };
 
-        // Compute rotated anchors using delta_angle
-        let da_a = a.delta_angle();
-        let da_b = b.delta_angle();
-        let (sin_a, cos_a) = da_a.sin_cos();
-        let (sin_b, cos_b) = da_b.sin_cos();
+        // World-space anchors at the start of the step from local anchors.
+        let r_a0 = Mat2::rotation(a.angle()).mul_vec2(self.local_anchor_a);
+        let r_b0 = Mat2::rotation(b.angle()).mul_vec2(self.local_anchor_b);
 
-        let rotated_a = Vec2::new(
-            self.anchor_a.x * cos_a - self.anchor_a.y * sin_a,
-            self.anchor_a.x * sin_a + self.anchor_a.y * cos_a,
-        );
-        let rotated_b = Vec2::new(
-            self.anchor_b.x * cos_b - self.anchor_b.y * sin_b,
-            self.anchor_b.x * sin_b + self.anchor_b.y * cos_b,
-        );
+        // Keep separation linearization consistent with the velocity Jacobian:
+        // r(θ + dθ) ≈ r(θ) + dθ * perp(r(θ))
+        let dr_a = r_a0.perp() * a.delta_angle();
+        let dr_b = r_b0.perp() * b.delta_angle();
 
-        // Compute current separation
+        // Predicted separation along normal.
         let dp = *b.delta_pos() - *a.delta_pos();
-        let ds = dp + rotated_b - rotated_a;
-        let separation = self.base_separation + ds.dot(self.normal);
+        let separation = self.base_separation + (dp + dr_b - dr_a).dot(self.normal);
 
-        // Compute velocity bias based on separation
-        let velocity_bias;
-
-        if separation > 0.0 {
-            // Speculative contact: push apart at rate to close gap in one step
-            velocity_bias = separation * inv_dt;
+        let velocity_bias = if dt <= 0.0 {
+            0.0
+        } else if separation > 0.0 {
+            separation / dt
         } else if use_bias {
-            // Bias for penetration correction (clamped)
-            velocity_bias = (params.bias_rate * separation).max(-params.max_bias_velocity);
+            let c = (separation + params.slop).min(0.0);
+            (params.bias_rate * c / dt).max(-params.max_bias_velocity)
         } else {
-            velocity_bias = 0.0;
-        }
+            0.0
+        };
 
         // Relative normal velocity at contact
-        let vn = (velocity_at(self.anchor_b, b) - velocity_at(self.anchor_a, a)).dot(self.normal);
+        let vn = (velocity_at(r_b0, b) - velocity_at(r_a0, a)).dot(self.normal);
 
         // Incremental normal impulse
         let impulse = -self.normal_mass * (vn + velocity_bias);
@@ -124,15 +126,24 @@ impl ContactConstraint {
         self.jn = (jn_old + impulse).max(0.0);
         let delta = self.jn - jn_old;
 
-        apply_impulse_pair(a, b, self.anchor_a, self.anchor_b, self.normal, delta);
+        apply_impulse_pair(a, b, r_a0, r_b0, self.normal, delta);
+
+        sync_pair_deltas(a, b, dt);
     }
 
-    pub fn solve_tangent(&mut self, entities: &mut [Box<dyn PhysicalEntity>], friction: f32) {
+    pub fn solve_tangent(
+        &mut self,
+        entities: &mut [Box<dyn PhysicalEntity>],
+        dt: f32,
+        friction: f32,
+    ) {
         let Some((a, b)) = get_pair_mut(entities, self.index_a, self.index_b) else {
             return;
         };
 
-        let vt = (velocity_at(self.anchor_b, b) - velocity_at(self.anchor_a, a)).dot(self.tangent);
+        let r_a0 = Mat2::rotation(a.angle()).mul_vec2(self.local_anchor_a);
+        let r_b0 = Mat2::rotation(b.angle()).mul_vec2(self.local_anchor_b);
+        let vt = (velocity_at(r_b0, b) - velocity_at(r_a0, a)).dot(self.tangent);
         let lambda = -self.tangent_mass * vt;
 
         let max_jt = friction * self.jn;
@@ -140,17 +151,23 @@ impl ContactConstraint {
         self.jt = (jt_old + lambda).clamp(-max_jt, max_jt);
         let delta = self.jt - jt_old;
 
-        apply_impulse_pair(a, b, self.anchor_a, self.anchor_b, self.tangent, delta);
+        apply_impulse_pair(a, b, r_a0, r_b0, self.tangent, delta);
+
+        sync_pair_deltas(a, b, dt);
     }
 
     /// Apply restitution impulse (separate pass, like Box2D).
     pub fn apply_restitution(
         &mut self,
         entities: &mut [Box<dyn PhysicalEntity>],
+        dt: f32,
         restitution: f32,
         threshold: f32,
     ) {
         if restitution == 0.0 {
+            return;
+        }
+        if self.base_separation >= 0.0 {
             return;
         }
         if self.relative_velocity > -threshold || self.jn == 0.0 {
@@ -161,14 +178,18 @@ impl ContactConstraint {
             return;
         };
 
-        let vn = (velocity_at(self.anchor_b, b) - velocity_at(self.anchor_a, a)).dot(self.normal);
+        let r_a0 = Mat2::rotation(a.angle()).mul_vec2(self.local_anchor_a);
+        let r_b0 = Mat2::rotation(b.angle()).mul_vec2(self.local_anchor_b);
+        let vn = (velocity_at(r_b0, b) - velocity_at(r_a0, a)).dot(self.normal);
         let impulse = -self.normal_mass * (vn + restitution * self.relative_velocity);
 
         let jn_old = self.jn;
         self.jn = (jn_old + impulse).max(0.0);
         let delta = self.jn - jn_old;
 
-        apply_impulse_pair(a, b, self.anchor_a, self.anchor_b, self.normal, delta);
+        apply_impulse_pair(a, b, r_a0, r_b0, self.normal, delta);
+
+        sync_pair_deltas(a, b, dt);
     }
 
     fn apply_warm_start(&self, entities: &mut [Box<dyn PhysicalEntity>]) {
@@ -178,8 +199,10 @@ impl ContactConstraint {
         let Some((a, b)) = get_pair_mut(entities, self.index_a, self.index_b) else {
             return;
         };
-        apply_impulse_pair(a, b, self.anchor_a, self.anchor_b, self.normal, self.jn);
-        apply_impulse_pair(a, b, self.anchor_a, self.anchor_b, self.tangent, self.jt);
+        let r_a0 = Mat2::rotation(a.angle()).mul_vec2(self.local_anchor_a);
+        let r_b0 = Mat2::rotation(b.angle()).mul_vec2(self.local_anchor_b);
+        apply_impulse_pair(a, b, r_a0, r_b0, self.normal, self.jn);
+        apply_impulse_pair(a, b, r_a0, r_b0, self.tangent, self.jt);
     }
 }
 
@@ -204,6 +227,17 @@ fn apply_impulse_pair(
     *b.omega_mut() = b.omega() + b.inv_inertia() * r_b.cross(impulse);
 }
 
+#[inline]
+fn sync_pair_deltas(a: &mut dyn PhysicalEntity, b: &mut dyn PhysicalEntity, dt: f32) {
+    if dt <= 0.0 {
+        return;
+    }
+    *a.delta_pos_mut() = *a.vel() * dt;
+    *a.delta_angle_mut() = a.omega() * dt;
+    *b.delta_pos_mut() = *b.vel() * dt;
+    *b.delta_angle_mut() = b.omega() * dt;
+}
+
 fn get_pair_mut(
     entities: &mut [Box<dyn PhysicalEntity>],
     i: usize,
@@ -224,27 +258,35 @@ const CELL_SIZE: f32 = 0.05;
 #[derive(Hash, Eq, PartialEq, Clone, Copy)]
 struct CacheKey {
     pair: (usize, usize),
-    cell: (i32, i32),
+    cell_a: (i32, i32),
+    cell_b: (i32, i32),
 }
 
 impl CacheKey {
-    fn new(index_a: usize, index_b: usize, anchor_a: Vec2) -> Self {
+    fn cell(v: Vec2) -> (i32, i32) {
+        (
+            (v.x / CELL_SIZE).round() as i32,
+            (v.y / CELL_SIZE).round() as i32,
+        )
+    }
+
+    fn new(index_a: usize, index_b: usize, local_anchor_a: Vec2, local_anchor_b: Vec2) -> Self {
         Self {
             pair: (index_a, index_b),
-            cell: (
-                (anchor_a.x / CELL_SIZE).round() as i32,
-                (anchor_a.y / CELL_SIZE).round() as i32,
-            ),
+            cell_a: Self::cell(local_anchor_a),
+            cell_b: Self::cell(local_anchor_b),
         }
     }
 }
 
-/// TGS-style solver parameters (Box2D v3 approach).
+/// TGS-style solver parameters.
 #[derive(Clone)]
 pub struct SolverParams {
-    /// Bias rate for soft constraint (how fast to correct penetration)
+    /// Baumgarte factor (0.1-0.3 typical). bias = bias_rate * penetration / dt
     pub bias_rate: f32,
-    /// Maximum bias velocity to prevent explosive corrections
+    /// Penetration slop (meters). Small penetrations below this do not get corrected by bias.
+    pub slop: f32,
+    /// Maximum bias velocity (m/s) to prevent explosive corrections
     pub max_bias_velocity: f32,
     /// Restitution threshold (minimum relative velocity for bounce)
     pub restitution_threshold: f32,
@@ -256,10 +298,13 @@ pub struct SolverParams {
 
 impl Default for SolverParams {
     fn default() -> Self {
-        // These values are tuned similar to Box2D defaults
         Self {
-            bias_rate: 0.2,         // ~30Hz contact hertz equivalent
-            max_bias_velocity: 2.0, // Limit correction speed
+            // Baumgarte factor: bias = bias_rate * penetration / dt
+            // 0.2 is a common value (Box2D uses similar)
+            bias_rate: 0.05,
+            slop: 0.01,
+            // Limit correction speed to prevent explosive behavior
+            max_bias_velocity: 4.0,
             restitution_threshold: 1.0,
             restitution: 0.3,
             friction: 0.5,
@@ -272,7 +317,8 @@ pub struct ConstraintSolver {
     pub iterations: usize,
     pub params: SolverParams,
     cache: HashMap<CacheKey, (f32, f32)>,
-    inv_dt: f32,
+    dt: f32,
+    last_dt: f32,
 }
 
 impl ConstraintSolver {
@@ -282,7 +328,8 @@ impl ConstraintSolver {
             iterations,
             params: SolverParams::default(),
             cache: HashMap::new(),
-            inv_dt: 0.0,
+            dt: 0.0,
+            last_dt: 0.0,
         }
     }
 
@@ -292,13 +339,18 @@ impl ConstraintSolver {
         entities: &[Box<dyn PhysicalEntity>],
         dt: f32,
     ) {
-        self.inv_dt = if dt > 0.0 { 1.0 / dt } else { 0.0 };
+        self.dt = dt;
+        let dt_ratio = if self.last_dt > 0.0 {
+            dt / self.last_dt
+        } else {
+            1.0
+        };
 
         // Cache old impulses for warm starting
         self.cache.clear();
         for c in &self.constraints {
             if c.jn != 0.0 || c.jt != 0.0 {
-                let key = CacheKey::new(c.index_a, c.index_b, c.anchor_a);
+                let key = CacheKey::new(c.index_a, c.index_b, c.local_anchor_a, c.local_anchor_b);
                 self.cache.insert(key, (c.jn, c.jt));
             }
         }
@@ -313,48 +365,46 @@ impl ConstraintSolver {
                 let mut c =
                     ContactConstraint::new(manifold.a, manifold.b, manifold.normal, cp, &**a, &**b);
                 // Warm start: restore cached impulses
-                let key = CacheKey::new(c.index_a, c.index_b, c.anchor_a);
+                let key = CacheKey::new(c.index_a, c.index_b, c.local_anchor_a, c.local_anchor_b);
                 if let Some(&(jn, jt)) = self.cache.get(&key) {
-                    c.jn = jn;
-                    c.jt = jt;
+                    // Impulses scale roughly with dt; keep warm-start stable under variable time steps.
+                    c.jn = jn * dt_ratio;
+                    c.jt = jt * dt_ratio;
                 }
                 self.constraints.push(c);
             }
         }
+
+        self.last_dt = dt;
     }
 
     /// TGS-style solve: multiple iterations with bias, then restitution pass.
     pub fn solve(&mut self, entities: &mut [Box<dyn PhysicalEntity>]) {
-        let dt = if self.inv_dt > 0.0 {
-            1.0 / self.inv_dt
-        } else {
-            0.0
-        };
+        let dt = self.dt;
 
         // Warm start
         for c in &self.constraints {
             c.apply_warm_start(entities);
         }
 
-        // After warm start velocities changed; refresh predicted deltas.
+        // After warm start velocities changed; initialize predicted deltas.
         update_predicted_deltas(entities, dt);
 
-        // Main iterations with bias (corrects penetration)
+        // Main iterations with bias (corrects penetration).
+        // Deltas are kept in sync per-body inside solve_* after each impulse.
         for _ in 0..self.iterations {
-            // As velocities change during iterations, keep predicted deltas in sync.
-            update_predicted_deltas(entities, dt);
             for c in &mut self.constraints {
-                c.solve_normal(entities, self.inv_dt, &self.params, true);
+                c.solve_normal(entities, dt, &self.params, true);
             }
             for c in &mut self.constraints {
-                c.solve_tangent(entities, self.params.friction);
+                c.solve_tangent(entities, dt, self.params.friction);
             }
         }
 
-        // Restitution pass (separate, like Box2D)
         for c in &mut self.constraints {
             c.apply_restitution(
                 entities,
+                dt,
                 self.params.restitution,
                 self.params.restitution_threshold,
             );
