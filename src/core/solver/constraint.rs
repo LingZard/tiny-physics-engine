@@ -19,12 +19,6 @@ pub struct ContactConstraint {
     pub jt: f32,
     /// Initial relative normal velocity (for restitution)
     pub relative_velocity: f32,
-    pub friction: f32,
-    pub restitution: f32,
-    pub inv_mass_a: f32,
-    pub inv_mass_b: f32,
-    pub inv_inertia_a: f32,
-    pub inv_inertia_b: f32,
 }
 
 impl ContactConstraint {
@@ -35,7 +29,6 @@ impl ContactConstraint {
         cp: &ContactPoint,
         a: &dyn PhysicalEntity,
         b: &dyn PhysicalEntity,
-        params: &SolverParams,
     ) -> Self {
         // Fixed anchors relative to body centers
         let anchor_a = cp.point - *a.pos();
@@ -52,10 +45,6 @@ impl ContactConstraint {
             if inv > 1e-8 { 1.0 / inv } else { 0.0 }
         };
 
-        // Base separation: initial penetration (negative separation) minus anchor contribution
-        // This lets us compute current separation as:
-        //   s = base_separation + dot(anchor_b_rotated - anchor_a_rotated + dp, normal)
-        // where dp = delta_pos_b - delta_pos_a
         let base_separation = -cp.penetration - (anchor_b - anchor_a).dot(normal);
 
         // Save relative velocity for restitution (computed once at constraint build time)
@@ -75,12 +64,6 @@ impl ContactConstraint {
             jn: 0.0,
             jt: 0.0,
             relative_velocity,
-            friction: params.friction,
-            restitution: params.restitution,
-            inv_mass_a: a.inv_mass(),
-            inv_mass_b: b.inv_mass(),
-            inv_inertia_a: a.inv_inertia(),
-            inv_inertia_b: b.inv_inertia(),
         }
     }
 
@@ -119,31 +102,22 @@ impl ContactConstraint {
 
         // Compute velocity bias based on separation
         let velocity_bias;
-        let mass_scale;
-        let impulse_scale;
 
         if separation > 0.0 {
             // Speculative contact: push apart at rate to close gap in one step
             velocity_bias = separation * inv_dt;
-            mass_scale = 1.0;
-            impulse_scale = 0.0;
         } else if use_bias {
-            // Soft constraint bias for penetration
+            // Bias for penetration correction (clamped)
             velocity_bias = (params.bias_rate * separation).max(-params.max_bias_velocity);
-            mass_scale = params.mass_scale;
-            impulse_scale = params.impulse_scale;
         } else {
             velocity_bias = 0.0;
-            mass_scale = 1.0;
-            impulse_scale = 0.0;
         }
 
         // Relative normal velocity at contact
         let vn = (velocity_at(self.anchor_b, b) - velocity_at(self.anchor_a, a)).dot(self.normal);
 
         // Incremental normal impulse
-        let impulse =
-            -self.normal_mass * (mass_scale * vn + velocity_bias) - impulse_scale * self.jn;
+        let impulse = -self.normal_mass * (vn + velocity_bias);
 
         // Clamp the accumulated impulse
         let jn_old = self.jn;
@@ -153,7 +127,7 @@ impl ContactConstraint {
         apply_impulse_pair(a, b, self.anchor_a, self.anchor_b, self.normal, delta);
     }
 
-    pub fn solve_tangent(&mut self, entities: &mut [Box<dyn PhysicalEntity>]) {
+    pub fn solve_tangent(&mut self, entities: &mut [Box<dyn PhysicalEntity>], friction: f32) {
         let Some((a, b)) = get_pair_mut(entities, self.index_a, self.index_b) else {
             return;
         };
@@ -161,7 +135,7 @@ impl ContactConstraint {
         let vt = (velocity_at(self.anchor_b, b) - velocity_at(self.anchor_a, a)).dot(self.tangent);
         let lambda = -self.tangent_mass * vt;
 
-        let max_jt = self.friction * self.jn;
+        let max_jt = friction * self.jn;
         let jt_old = self.jt;
         self.jt = (jt_old + lambda).clamp(-max_jt, max_jt);
         let delta = self.jt - jt_old;
@@ -170,11 +144,15 @@ impl ContactConstraint {
     }
 
     /// Apply restitution impulse (separate pass, like Box2D).
-    pub fn apply_restitution(&mut self, entities: &mut [Box<dyn PhysicalEntity>], threshold: f32) {
-        if self.restitution == 0.0 {
+    pub fn apply_restitution(
+        &mut self,
+        entities: &mut [Box<dyn PhysicalEntity>],
+        restitution: f32,
+        threshold: f32,
+    ) {
+        if restitution == 0.0 {
             return;
         }
-        // Only apply restitution if initial collision was above threshold
         if self.relative_velocity > -threshold || self.jn == 0.0 {
             return;
         }
@@ -184,7 +162,7 @@ impl ContactConstraint {
         };
 
         let vn = (velocity_at(self.anchor_b, b) - velocity_at(self.anchor_a, a)).dot(self.normal);
-        let impulse = -self.normal_mass * (vn + self.restitution * self.relative_velocity);
+        let impulse = -self.normal_mass * (vn + restitution * self.relative_velocity);
 
         let jn_old = self.jn;
         self.jn = (jn_old + impulse).max(0.0);
@@ -266,10 +244,6 @@ impl CacheKey {
 pub struct SolverParams {
     /// Bias rate for soft constraint (how fast to correct penetration)
     pub bias_rate: f32,
-    /// Mass scaling for soft constraint (reduces effective mass to soften)
-    pub mass_scale: f32,
-    /// Impulse scaling for soft constraint (reduces accumulated impulse contribution)
-    pub impulse_scale: f32,
     /// Maximum bias velocity to prevent explosive corrections
     pub max_bias_velocity: f32,
     /// Restitution threshold (minimum relative velocity for bounce)
@@ -284,9 +258,7 @@ impl Default for SolverParams {
     fn default() -> Self {
         // These values are tuned similar to Box2D defaults
         Self {
-            bias_rate: 0.2, // ~30Hz contact hertz equivalent
-            mass_scale: 1.0,
-            impulse_scale: 0.0,
+            bias_rate: 0.2,         // ~30Hz contact hertz equivalent
             max_bias_velocity: 2.0, // Limit correction speed
             restitution_threshold: 1.0,
             restitution: 0.3,
@@ -338,15 +310,8 @@ impl ConstraintSolver {
                 continue;
             };
             for cp in &manifold.points {
-                let mut c = ContactConstraint::new(
-                    manifold.a,
-                    manifold.b,
-                    manifold.normal,
-                    cp,
-                    &**a,
-                    &**b,
-                    &self.params,
-                );
+                let mut c =
+                    ContactConstraint::new(manifold.a, manifold.b, manifold.normal, cp, &**a, &**b);
                 // Warm start: restore cached impulses
                 let key = CacheKey::new(c.index_a, c.index_b, c.anchor_a);
                 if let Some(&(jn, jt)) = self.cache.get(&key) {
@@ -382,13 +347,17 @@ impl ConstraintSolver {
                 c.solve_normal(entities, self.inv_dt, &self.params, true);
             }
             for c in &mut self.constraints {
-                c.solve_tangent(entities);
+                c.solve_tangent(entities, self.params.friction);
             }
         }
 
         // Restitution pass (separate, like Box2D)
         for c in &mut self.constraints {
-            c.apply_restitution(entities, self.params.restitution_threshold);
+            c.apply_restitution(
+                entities,
+                self.params.restitution,
+                self.params.restitution_threshold,
+            );
         }
     }
 }
