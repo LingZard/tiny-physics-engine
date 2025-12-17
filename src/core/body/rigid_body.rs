@@ -12,9 +12,6 @@ pub struct RigidBody {
     pub torque: f32,
     pub inv_inertia: f32,
     pub collider: Option<Collider2D>,
-    // TGS-style: track position/angle change within current step
-    pub delta_pos: Vec2,
-    pub delta_angle: f32,
 }
 
 impl RigidBody {
@@ -29,8 +26,6 @@ impl RigidBody {
             torque: 0.0,
             inv_inertia,
             collider: None,
-            delta_pos: Vec2::zero(),
-            delta_angle: 0.0,
         }
     }
 
@@ -51,8 +46,6 @@ impl RigidBody {
             torque: 0.0,
             inv_inertia,
             collider: Some(collider),
-            delta_pos: Vec2::zero(),
-            delta_angle: 0.0,
         }
     }
 
@@ -71,8 +64,6 @@ impl RigidBody {
             torque: 0.0,
             inv_inertia,
             collider: Some(collider),
-            delta_pos: Vec2::zero(),
-            delta_angle: 0.0,
         }
     }
 }
@@ -122,17 +113,5 @@ impl PhysicalEntity for RigidBody {
     }
     fn collider(&self) -> Option<&Collider2D> {
         self.collider.as_ref()
-    }
-    fn delta_pos(&self) -> &Vec2 {
-        &self.delta_pos
-    }
-    fn delta_pos_mut(&mut self) -> &mut Vec2 {
-        &mut self.delta_pos
-    }
-    fn delta_angle(&self) -> f32 {
-        self.delta_angle
-    }
-    fn delta_angle_mut(&mut self) -> &mut f32 {
-        &mut self.delta_angle
     }
 }

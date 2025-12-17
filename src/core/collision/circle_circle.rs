@@ -1,19 +1,18 @@
 use super::manifold::ContactPoint;
 use crate::math::vec::Vec2;
 
-const SPECULATIVE_DISTANCE: f32 = 0.05;
-
 pub fn detect(
     center_a: Vec2,
     radius_a: f32,
     center_b: Vec2,
     radius_b: f32,
+    speculative_distance: f32,
 ) -> Option<(Vec2, ContactPoint)> {
     let delta = center_b - center_a;
     let dist_sq = delta.length_squared();
     let radius_sum = radius_a + radius_b;
 
-    let max_dist = radius_sum + SPECULATIVE_DISTANCE;
+    let max_dist = radius_sum + speculative_distance;
     if dist_sq > max_dist * max_dist {
         return None;
     }

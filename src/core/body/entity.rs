@@ -28,16 +28,6 @@ pub trait PhysicalEntity: Any {
         *self.torque_mut() = 0.0;
     }
 
-    // TGS-style delta tracking (position/angle change within current step)
-    fn delta_pos(&self) -> &Vec2;
-    fn delta_pos_mut(&mut self) -> &mut Vec2;
-    fn delta_angle(&self) -> f32;
-    fn delta_angle_mut(&mut self) -> &mut f32;
-    fn clear_deltas(&mut self) {
-        *self.delta_pos_mut() = Vec2::zero();
-        *self.delta_angle_mut() = 0.0;
-    }
-
     // collision
     fn collider(&self) -> Option<&Collider2D> {
         None

@@ -83,6 +83,8 @@ impl ContactConstraint {
     pub fn solve_normal(
         &mut self,
         entities: &mut [Box<dyn PhysicalEntity>],
+        delta_pos: &mut [Vec2],
+        delta_angle: &mut [f32],
         dt: f32,
         params: &SolverParams,
         use_bias: bool,
@@ -97,11 +99,11 @@ impl ContactConstraint {
 
         // Keep separation linearization consistent with the velocity Jacobian:
         // r(θ + dθ) ≈ r(θ) + dθ * perp(r(θ))
-        let dr_a = r_a0.perp() * a.delta_angle();
-        let dr_b = r_b0.perp() * b.delta_angle();
+        let dr_a = r_a0.perp() * delta_angle[self.index_a];
+        let dr_b = r_b0.perp() * delta_angle[self.index_b];
 
         // Predicted separation along normal.
-        let dp = *b.delta_pos() - *a.delta_pos();
+        let dp = delta_pos[self.index_b] - delta_pos[self.index_a];
         let separation = self.base_separation + (dp + dr_b - dr_a).dot(self.normal);
 
         let velocity_bias = if dt <= 0.0 {
@@ -128,12 +130,14 @@ impl ContactConstraint {
 
         apply_impulse_pair(a, b, r_a0, r_b0, self.normal, delta);
 
-        sync_pair_deltas(a, b, dt);
+        sync_pair_deltas(a, b, self.index_a, self.index_b, delta_pos, delta_angle, dt);
     }
 
     pub fn solve_tangent(
         &mut self,
         entities: &mut [Box<dyn PhysicalEntity>],
+        delta_pos: &mut [Vec2],
+        delta_angle: &mut [f32],
         dt: f32,
         friction: f32,
     ) {
@@ -153,13 +157,15 @@ impl ContactConstraint {
 
         apply_impulse_pair(a, b, r_a0, r_b0, self.tangent, delta);
 
-        sync_pair_deltas(a, b, dt);
+        sync_pair_deltas(a, b, self.index_a, self.index_b, delta_pos, delta_angle, dt);
     }
 
     /// Apply restitution impulse (separate pass, like Box2D).
     pub fn apply_restitution(
         &mut self,
         entities: &mut [Box<dyn PhysicalEntity>],
+        delta_pos: &mut [Vec2],
+        delta_angle: &mut [f32],
         dt: f32,
         restitution: f32,
         threshold: f32,
@@ -189,7 +195,7 @@ impl ContactConstraint {
 
         apply_impulse_pair(a, b, r_a0, r_b0, self.normal, delta);
 
-        sync_pair_deltas(a, b, dt);
+        sync_pair_deltas(a, b, self.index_a, self.index_b, delta_pos, delta_angle, dt);
     }
 
     fn apply_warm_start(&self, entities: &mut [Box<dyn PhysicalEntity>]) {
@@ -228,14 +234,22 @@ fn apply_impulse_pair(
 }
 
 #[inline]
-fn sync_pair_deltas(a: &mut dyn PhysicalEntity, b: &mut dyn PhysicalEntity, dt: f32) {
+fn sync_pair_deltas(
+    a: &dyn PhysicalEntity,
+    b: &dyn PhysicalEntity,
+    index_a: usize,
+    index_b: usize,
+    delta_pos: &mut [Vec2],
+    delta_angle: &mut [f32],
+    dt: f32,
+) {
     if dt <= 0.0 {
         return;
     }
-    *a.delta_pos_mut() = *a.vel() * dt;
-    *a.delta_angle_mut() = a.omega() * dt;
-    *b.delta_pos_mut() = *b.vel() * dt;
-    *b.delta_angle_mut() = b.omega() * dt;
+    delta_pos[index_a] = *a.vel() * dt;
+    delta_angle[index_a] = a.omega() * dt;
+    delta_pos[index_b] = *b.vel() * dt;
+    delta_angle[index_b] = b.omega() * dt;
 }
 
 fn get_pair_mut(
@@ -319,6 +333,9 @@ pub struct ConstraintSolver {
     cache: HashMap<CacheKey, (f32, f32)>,
     dt: f32,
     last_dt: f32,
+    // Solver-internal predicted per-body deltas for the current step.
+    delta_pos: Vec<Vec2>,
+    delta_angle: Vec<f32>,
 }
 
 impl ConstraintSolver {
@@ -330,6 +347,8 @@ impl ConstraintSolver {
             cache: HashMap::new(),
             dt: 0.0,
             last_dt: 0.0,
+            delta_pos: Vec::new(),
+            delta_angle: Vec::new(),
         }
     }
 
@@ -340,6 +359,7 @@ impl ConstraintSolver {
         dt: f32,
     ) {
         self.dt = dt;
+        self.ensure_delta_capacity(entities.len());
         let dt_ratio = if self.last_dt > 0.0 {
             dt / self.last_dt
         } else {
@@ -388,39 +408,67 @@ impl ConstraintSolver {
         }
 
         // After warm start velocities changed; initialize predicted deltas.
-        update_predicted_deltas(entities, dt);
+        self.init_predicted_deltas(entities, dt);
 
         // Main iterations with bias (corrects penetration).
         // Deltas are kept in sync per-body inside solve_* after each impulse.
         for _ in 0..self.iterations {
             for c in &mut self.constraints {
-                c.solve_normal(entities, dt, &self.params, true);
+                c.solve_normal(
+                    entities,
+                    &mut self.delta_pos,
+                    &mut self.delta_angle,
+                    dt,
+                    &self.params,
+                    true,
+                );
             }
             for c in &mut self.constraints {
-                c.solve_tangent(entities, dt, self.params.friction);
+                c.solve_tangent(
+                    entities,
+                    &mut self.delta_pos,
+                    &mut self.delta_angle,
+                    dt,
+                    self.params.friction,
+                );
             }
         }
 
         for c in &mut self.constraints {
             c.apply_restitution(
                 entities,
+                &mut self.delta_pos,
+                &mut self.delta_angle,
                 dt,
                 self.params.restitution,
                 self.params.restitution_threshold,
             );
         }
     }
-}
 
-fn update_predicted_deltas(entities: &mut [Box<dyn PhysicalEntity>], dt: f32) {
-    if dt <= 0.0 {
-        for e in entities {
-            e.clear_deltas();
+    #[inline]
+    fn ensure_delta_capacity(&mut self, count: usize) {
+        if self.delta_pos.len() != count {
+            self.delta_pos.resize(count, Vec2::zero());
+            self.delta_angle.resize(count, 0.0);
         }
-        return;
     }
-    for e in entities {
-        *e.delta_pos_mut() = *e.vel() * dt;
-        *e.delta_angle_mut() = e.omega() * dt;
+
+    #[inline]
+    fn init_predicted_deltas(&mut self, entities: &[Box<dyn PhysicalEntity>], dt: f32) {
+        self.ensure_delta_capacity(entities.len());
+        if dt <= 0.0 {
+            for d in &mut self.delta_pos {
+                *d = Vec2::zero();
+            }
+            for a in &mut self.delta_angle {
+                *a = 0.0;
+            }
+            return;
+        }
+        for (i, e) in entities.iter().enumerate() {
+            self.delta_pos[i] = *e.vel() * dt;
+            self.delta_angle[i] = e.omega() * dt;
+        }
     }
 }

@@ -1,34 +1,12 @@
-use std::any::Any;
-
-use super::{Aabb, Collider2D};
-use crate::core::body::{Particle, PhysicalEntity, RigidBody};
+use super::Aabb;
+use crate::core::body::PhysicalEntity;
+use crate::core::params::SimParams;
 use crate::math::vec::Vec2;
 
-// Expand AABBs to generate speculative contact pairs (Box2D-style "fat AABB").
-// This allows narrow-phase to create contacts slightly before actual overlap,
-// enabling stable stacking at lower iteration counts.
-const SPECULATIVE_DISTANCE: f32 = 0.05;
-
-fn entity_aabb(e: &dyn PhysicalEntity) -> Aabb {
-    let any: &dyn Any = e;
-
-    if let Some(rb) = any.downcast_ref::<RigidBody>() {
-        if let Some(col) = &rb.collider {
-            let mut aabb = col.aabb(*rb.pos(), rb.angle());
-            let ext = Vec2::new(SPECULATIVE_DISTANCE, SPECULATIVE_DISTANCE);
-            aabb.min = aabb.min - ext;
-            aabb.max = aabb.max + ext;
-            return aabb;
-        } else {
-            let ext = Vec2::new(0.05, 0.05);
-            return Aabb::new(*rb.pos() - ext, *rb.pos() + ext);
-        }
-    }
-
-    if let Some(p) = any.downcast_ref::<Particle>() {
-        let col = Collider2D::Circle { radius: 0.05 };
-        let mut aabb = col.aabb(*p.pos(), p.angle());
-        let ext = Vec2::new(SPECULATIVE_DISTANCE, SPECULATIVE_DISTANCE);
+fn entity_aabb(e: &dyn PhysicalEntity, params: SimParams) -> Aabb {
+    if let Some(col) = e.collider() {
+        let mut aabb = col.aabb(*e.pos(), e.angle());
+        let ext = Vec2::new(params.speculative_distance, params.speculative_distance);
         aabb.min = aabb.min - ext;
         aabb.max = aabb.max + ext;
         return aabb;
@@ -38,7 +16,7 @@ fn entity_aabb(e: &dyn PhysicalEntity) -> Aabb {
     Aabb::new(*e.pos() - ext, *e.pos() + ext)
 }
 
-pub fn detect_sap(entities: &[Box<dyn PhysicalEntity>]) -> Vec<(usize, usize)> {
+pub fn detect_sap(entities: &[Box<dyn PhysicalEntity>], params: SimParams) -> Vec<(usize, usize)> {
     struct Entry {
         index: usize,
         aabb: Aabb,
@@ -49,7 +27,7 @@ pub fn detect_sap(entities: &[Box<dyn PhysicalEntity>]) -> Vec<(usize, usize)> {
         .enumerate()
         .map(|(i, e)| Entry {
             index: i,
-            aabb: entity_aabb(&**e),
+            aabb: entity_aabb(&**e, params),
         })
         .collect();
 

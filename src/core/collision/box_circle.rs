@@ -2,14 +2,13 @@ use super::manifold::ContactPoint;
 use crate::math::mat::Mat2;
 use crate::math::vec::Vec2;
 
-const SPECULATIVE_DISTANCE: f32 = 0.05;
-
 pub fn detect(
     box_center: Vec2,
     box_angle: f32,
     half_extents: Vec2,
     circle_center: Vec2,
     radius: f32,
+    speculative_distance: f32,
 ) -> Option<(Vec2, ContactPoint)> {
     let rot = Mat2::rotation(box_angle);
     let inv_rot = rot.transpose();
@@ -24,7 +23,7 @@ pub fn detect(
     let diff = delta_local - closest_local;
     let dist_sq = diff.length_squared();
 
-    let max_r = radius + SPECULATIVE_DISTANCE;
+    let max_r = radius + speculative_distance;
     if dist_sq > max_r * max_r {
         return None;
     }

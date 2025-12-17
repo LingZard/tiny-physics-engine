@@ -1,6 +1,7 @@
 use super::body::PhysicalEntity;
 use super::collision::{Manifold, broad_phase, narrow_phase};
 use super::integrator::{Integrator, integrate_velocity};
+use super::params::SimParams;
 use super::solver::ConstraintSolver;
 use crate::forces::ForceGen;
 use crate::math::vec::Vec2;
@@ -8,6 +9,7 @@ use crate::math::vec::Vec2;
 pub struct World {
     pub gravity: Vec2,
     pub integrator: Integrator,
+    pub params: SimParams,
     pub entities: Vec<Box<dyn PhysicalEntity>>,
     pub forces: Vec<Box<dyn ForceGen>>,
     pub solver: ConstraintSolver,
@@ -19,6 +21,7 @@ impl World {
         Self {
             gravity,
             integrator,
+            params: SimParams::default(),
             entities: Vec::new(),
             forces: Vec::new(),
             solver: ConstraintSolver::new(10),
@@ -34,24 +37,22 @@ impl World {
         self.forces.push(force);
     }
 
-    /// TGS-style simulation step (Box2D v3 approach):
-    /// 1) clear accumulators and deltas
+    /// TGS-style simulation step:
+    /// 1) clear accumulators
     /// 2) apply gravity + external forces
     /// 3) integrate velocity
-    /// 3b) predict delta_pos/delta_angle from current velocities (used by solver)
     /// 4) collision detect (broad + narrow)
-    /// 5) solve contacts (TGS: uses delta_pos/delta_angle to track separation)
-    /// 6) integrate position (pos/angle only; deltas are solver-internal predictions)
+    /// 5) solve contacts (TGS: solver predicts per-body motion internally)
+    /// 6) integrate position
     pub fn step(&mut self, dt: f32) {
         if dt <= 0.0 {
             return;
         }
 
-        // (1) Clear accumulators and TGS deltas.
+        // (1) Clear accumulators.
         for e in &mut self.entities {
             e.clear_forces();
             e.clear_torque();
-            e.clear_deltas();
         }
 
         // (2) Apply gravity as force: F = m * g.
@@ -74,16 +75,9 @@ impl World {
             integrate_velocity(&mut **e, dt, self.integrator);
         }
 
-        // (3b) Predict deltas from current velocities.
-        // The solver will recompute these as velocities change during iterations.
-        for e in &mut self.entities {
-            *e.delta_pos_mut() = *e.vel() * dt;
-            *e.delta_angle_mut() = e.omega() * dt;
-        }
-
         // (4) Detect collisions at current configuration.
-        let pairs = broad_phase::detect_sap(&self.entities);
-        self.manifolds = narrow_phase::detect(&self.entities, &pairs);
+        let pairs = broad_phase::detect_sap(&self.entities, self.params);
+        self.manifolds = narrow_phase::detect(&self.entities, &pairs, self.params);
 
         // (5) Build constraints and solve (TGS-style: uses delta tracking).
         self.solver

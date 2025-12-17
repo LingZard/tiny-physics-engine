@@ -10,8 +10,6 @@ pub struct Particle {
     omega: f32,
     torque: f32,
     inv_inertia: f32,
-    delta_pos: Vec2,
-    delta_angle: f32,
 }
 
 impl Particle {
@@ -25,8 +23,6 @@ impl Particle {
             omega: 0.0,
             torque: 0.0,
             inv_inertia: 0.0,
-            delta_pos: Vec2::zero(),
-            delta_angle: 0.0,
         }
     }
 }
@@ -73,17 +69,5 @@ impl PhysicalEntity for Particle {
     }
     fn inv_inertia(&self) -> f32 {
         self.inv_inertia
-    }
-    fn delta_pos(&self) -> &Vec2 {
-        &self.delta_pos
-    }
-    fn delta_pos_mut(&mut self) -> &mut Vec2 {
-        &mut self.delta_pos
-    }
-    fn delta_angle(&self) -> f32 {
-        self.delta_angle
-    }
-    fn delta_angle_mut(&mut self) -> &mut f32 {
-        &mut self.delta_angle
     }
 }
