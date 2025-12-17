@@ -173,9 +173,6 @@ impl ContactConstraint {
         if restitution == 0.0 {
             return;
         }
-        if self.base_separation >= 0.0 {
-            return;
-        }
         if self.relative_velocity > -threshold || self.jn == 0.0 {
             return;
         }
