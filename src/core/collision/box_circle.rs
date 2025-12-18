@@ -8,6 +8,7 @@ pub fn detect(
     half_extents: Vec2,
     circle_center: Vec2,
     radius: f32,
+    speculative_distance: f32,
 ) -> Option<(Vec2, ContactPoint)> {
     let rot = Mat2::rotation(box_angle);
     let inv_rot = rot.transpose();
@@ -22,12 +23,14 @@ pub fn detect(
     let diff = delta_local - closest_local;
     let dist_sq = diff.length_squared();
 
-    if dist_sq > radius * radius {
+    let max_r = radius + speculative_distance;
+    if dist_sq > max_r * max_r {
         return None;
     }
 
     let (normal_local, contact_local, penetration) = if dist_sq > 1e-12 {
         let dist = dist_sq.sqrt();
+        // penetration can be negative => separated but within speculative distance
         (diff / dist, closest_local, radius - dist)
     } else {
         let dx = half_extents.x - delta_local.x.abs();
@@ -38,14 +41,14 @@ pub fn detect(
             (
                 Vec2::new(sign_x, 0.0),
                 Vec2::new(sign_x * half_extents.x, delta_local.y),
-                radius + dx,
+                radius + dx, // inside box => overlap
             )
         } else {
             let sign_y = delta_local.y.signum();
             (
                 Vec2::new(0.0, sign_y),
                 Vec2::new(delta_local.x, sign_y * half_extents.y),
-                radius + dy,
+                radius + dy, // inside box => overlap
             )
         }
     };

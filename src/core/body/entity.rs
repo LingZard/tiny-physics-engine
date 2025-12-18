@@ -15,6 +15,7 @@ pub trait PhysicalEntity: Any {
     fn clear_forces(&mut self) {
         *self.force_mut() = Vec2::zero();
     }
+
     // rotation
     fn angle(&self) -> f32;
     fn angle_mut(&mut self) -> &mut f32;
@@ -26,6 +27,7 @@ pub trait PhysicalEntity: Any {
     fn clear_torque(&mut self) {
         *self.torque_mut() = 0.0;
     }
+
     // collision
     fn collider(&self) -> Option<&Collider2D> {
         None

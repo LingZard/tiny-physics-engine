@@ -1,6 +1,7 @@
 use super::body::PhysicalEntity;
 use super::collision::{Manifold, broad_phase, narrow_phase};
-use super::integrator::{Integrator, integrate_position, integrate_velocity};
+use super::integrator::{Integrator, integrate_velocity};
+use super::params::SimParams;
 use super::solver::ConstraintSolver;
 use crate::forces::ForceGen;
 use crate::math::vec::Vec2;
@@ -8,6 +9,7 @@ use crate::math::vec::Vec2;
 pub struct World {
     pub gravity: Vec2,
     pub integrator: Integrator,
+    pub params: SimParams,
     pub entities: Vec<Box<dyn PhysicalEntity>>,
     pub forces: Vec<Box<dyn ForceGen>>,
     pub solver: ConstraintSolver,
@@ -19,6 +21,7 @@ impl World {
         Self {
             gravity,
             integrator,
+            params: SimParams::default(),
             entities: Vec::new(),
             forces: Vec::new(),
             solver: ConstraintSolver::new(10),
@@ -34,12 +37,12 @@ impl World {
         self.forces.push(force);
     }
 
-    /// One simulation step:
+    /// TGS-style simulation step:
     /// 1) clear accumulators
     /// 2) apply gravity + external forces
     /// 3) integrate velocity
     /// 4) collision detect (broad + narrow)
-    /// 5) solve contacts (sequential impulse)
+    /// 5) solve contacts (TGS: solver predicts per-body motion internally)
     /// 6) integrate position
     pub fn step(&mut self, dt: f32) {
         if dt <= 0.0 {
@@ -60,8 +63,7 @@ impl World {
             }
         }
 
-        // (2) Apply user force generators (springs, drag, ...).
-        // Take the vec to avoid borrow conflicts while `apply` mut-borrows `self`.
+        // (2b) Apply user force generators (springs, drag, ...).
         let forces = core::mem::take(&mut self.forces);
         for f in &forces {
             f.apply(self);
@@ -73,18 +75,21 @@ impl World {
             integrate_velocity(&mut **e, dt, self.integrator);
         }
 
-        // (4) Detect collisions at current configuration (positions are advanced after solving).
-        let pairs = broad_phase::detect_sap(&self.entities);
-        self.manifolds = narrow_phase::detect(&self.entities, &pairs);
+        // (4) Detect collisions at current configuration.
+        let pairs = broad_phase::detect_sap(&self.entities, self.params);
+        self.manifolds = narrow_phase::detect(&self.entities, &pairs, self.params);
 
-        // (5) Build constraints and solve impulses (modifies velocities/omegas).
+        // (5) Build constraints and solve (TGS-style: uses delta tracking).
         self.solver
             .build_constraints(&self.manifolds, &self.entities, dt);
         self.solver.solve(&mut self.entities);
 
-        // (6) Integrate positions from the final velocities.
+        // (6) Integrate positions.
         for e in &mut self.entities {
-            integrate_position(&mut **e, dt, self.integrator);
+            let dp = *e.vel() * dt;
+            let da = e.omega() * dt;
+            *e.pos_mut() = *e.pos() + dp;
+            *e.angle_mut() = e.angle() + da;
         }
     }
 }
